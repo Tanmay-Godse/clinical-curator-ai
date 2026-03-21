@@ -4,6 +4,7 @@ export type CalibrationMode = "corners" | "guide";
 export type UserRole = "student" | "admin";
 export type SafetyGateStatus = "cleared" | "blocked" | "needs_human_review";
 export type ReviewCaseStatus = "pending" | "resolved";
+export type AuthMode = "sign-in" | "create-account";
 
 export type Point = {
   x: number;
@@ -139,9 +140,33 @@ export type DebriefResponse = {
 
 export type AuthUser = {
   id: string;
+  accountId: string;
   name: string;
+  username: string;
   role: UserRole;
   createdAt: string;
+};
+
+export type AuthAccount = {
+  id: string;
+  name: string;
+  username: string;
+  passwordHash: string;
+  role: UserRole;
+  createdAt: string;
+};
+
+export type CreateAuthAccountInput = {
+  name: string;
+  username: string;
+  password: string;
+  role: UserRole;
+};
+
+export type LoginAuthInput = {
+  username: string;
+  password: string;
+  role?: UserRole;
 };
 
 export type ReviewCase = {

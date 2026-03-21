@@ -862,6 +862,29 @@ img {
   gap: 20px;
 }
 
+.auth-mode-switch {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.auth-mode-button {
+  padding: 12px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(97, 61, 37, 0.12);
+  background: rgba(255, 251, 246, 0.82);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.auth-mode-button.is-active {
+  border-color: rgba(204, 90, 47, 0.28);
+  background:
+    radial-gradient(circle at top right, rgba(204, 90, 47, 0.08), transparent 42%),
+    rgba(255, 247, 238, 0.98);
+  box-shadow: var(--shadow-soft);
+}
+
 .auth-form,
 .admin-resolution-form {
   display: grid;
@@ -889,10 +912,22 @@ img {
     rgba(255, 247, 238, 0.96);
 }
 
+.role-card:disabled,
+.auth-mode-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.78;
+}
+
 .role-card strong {
   display: block;
   margin-bottom: 8px;
   font-family: var(--font-display), sans-serif;
+}
+
+.auth-helper-copy {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .admin-review-grid {

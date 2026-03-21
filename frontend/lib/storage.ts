@@ -1,17 +1,26 @@
 import { createDefaultCalibration } from "@/lib/geometry";
 import type {
+  AuthAccount,
   AuthUser,
+  CreateAuthAccountInput,
   DebriefResponse,
+  LoginAuthInput,
   SessionRecord,
   SkillLevel,
-  UserRole,
 } from "@/lib/types";
 
 const SESSIONS_KEY = "ai-clinical-skills-coach:sessions";
 const AUTH_USER_KEY = "ai-clinical-skills-coach:auth-user";
+const AUTH_ACCOUNTS_KEY = "ai-clinical-skills-coach:auth-accounts";
 
 function activeSessionKey(procedureId: string) {
   return `ai-clinical-skills-coach:active:${procedureId}`;
+}
+
+function ensureBrowserStorage() {
+  if (typeof window === "undefined") {
+    throw new Error("Authentication is available only in the browser.");
+  }
 }
 
 function readSessions(): Record<string, SessionRecord> {
@@ -36,6 +45,76 @@ function writeSessions(sessions: Record<string, SessionRecord>) {
   window.localStorage.setItem(SESSIONS_KEY, JSON.stringify(sessions));
 }
 
+function readAuthAccounts(): AuthAccount[] {
+  if (typeof window === "undefined") {
+    return [];
+  }
+
+  const raw = window.localStorage.getItem(AUTH_ACCOUNTS_KEY);
+  if (!raw) {
+    return [];
+  }
+
+  try {
+    const data = JSON.parse(raw) as AuthAccount[];
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeAuthAccounts(accounts: AuthAccount[]) {
+  window.localStorage.setItem(AUTH_ACCOUNTS_KEY, JSON.stringify(accounts));
+}
+
+function normalizeUsername(username: string): string {
+  return username.trim().toLowerCase();
+}
+
+function validateUsername(username: string): string {
+  const normalized = normalizeUsername(username);
+  if (normalized.length < 3) {
+    throw new Error("Username must be at least 3 characters.");
+  }
+  if (!/^[a-z0-9._@-]+$/.test(normalized)) {
+    throw new Error(
+      "Username can use letters, numbers, periods, underscores, hyphens, and @.",
+    );
+  }
+  return normalized;
+}
+
+function validatePassword(password: string): string {
+  if (password.length < 8) {
+    throw new Error("Password must be at least 8 characters.");
+  }
+  return password;
+}
+
+async function hashPassword(password: string): Promise<string> {
+  const encoder = new TextEncoder();
+  const buffer = await crypto.subtle.digest("SHA-256", encoder.encode(password));
+  return Array.from(new Uint8Array(buffer), (value) =>
+    value.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+function toAuthUser(account: AuthAccount): AuthUser {
+  return {
+    id: crypto.randomUUID(),
+    accountId: account.id,
+    name: account.name,
+    username: account.username,
+    role: account.role,
+    createdAt: new Date().toISOString(),
+  };
+}
+
+function persistAuthUser(user: AuthUser): AuthUser {
+  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  return user;
+}
+
 export function saveSession(session: SessionRecord): SessionRecord {
   const sessions = readSessions();
   sessions[session.id] = session;
@@ -48,15 +127,65 @@ export function getSession(sessionId: string): SessionRecord | null {
   return readSessions()[sessionId] ?? null;
 }
 
-export function saveAuthUser(name: string, role: UserRole): AuthUser {
-  const user: AuthUser = {
+export async function createAuthAccount(
+  input: CreateAuthAccountInput,
+): Promise<AuthUser> {
+  ensureBrowserStorage();
+
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error("Display name is required.");
+  }
+
+  const username = validateUsername(input.username);
+  const password = validatePassword(input.password);
+  const accounts = readAuthAccounts();
+
+  if (accounts.some((account) => account.username === username)) {
+    throw new Error("That username is already registered. Sign in instead.");
+  }
+
+  const account: AuthAccount = {
     id: crypto.randomUUID(),
-    name: name.trim() || (role === "admin" ? "Admin Reviewer" : "Student User"),
-    role,
+    name,
+    username,
+    passwordHash: await hashPassword(password),
+    role: input.role,
     createdAt: new Date().toISOString(),
   };
-  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
-  return user;
+
+  writeAuthAccounts([...accounts, account]);
+  return persistAuthUser(toAuthUser(account));
+}
+
+export async function signInAuthUser(input: LoginAuthInput): Promise<AuthUser> {
+  ensureBrowserStorage();
+
+  const username = validateUsername(input.username);
+  const password = validatePassword(input.password);
+  const accounts = readAuthAccounts();
+
+  if (accounts.length === 0) {
+    throw new Error("No local accounts exist yet. Create an account first.");
+  }
+
+  const account = accounts.find((entry) => entry.username === username);
+  if (!account) {
+    throw new Error("No account was found for that username.");
+  }
+
+  const passwordHash = await hashPassword(password);
+  if (account.passwordHash !== passwordHash) {
+    throw new Error("Incorrect password. Try again.");
+  }
+
+  if (input.role && account.role !== input.role) {
+    throw new Error(
+      `This account is registered as ${account.role}. Switch roles or use a different account.`,
+    );
+  }
+
+  return persistAuthUser(toAuthUser(account));
 }
 
 export function getAuthUser(): AuthUser | null {
@@ -70,7 +199,34 @@ export function getAuthUser(): AuthUser | null {
   }
 
   try {
-    return JSON.parse(raw) as AuthUser;
+    const parsed = JSON.parse(raw) as Partial<AuthUser>;
+    if (
+      typeof parsed?.name !== "string" ||
+      typeof parsed?.role !== "string" ||
+      typeof parsed?.createdAt !== "string"
+    ) {
+      return null;
+    }
+
+    return {
+      id:
+        typeof parsed.id === "string" && parsed.id.trim()
+          ? parsed.id
+          : crypto.randomUUID(),
+      accountId:
+        typeof parsed.accountId === "string" && parsed.accountId.trim()
+          ? parsed.accountId
+          : typeof parsed.id === "string" && parsed.id.trim()
+            ? parsed.id
+            : crypto.randomUUID(),
+      name: parsed.name,
+      username:
+        typeof parsed.username === "string" && parsed.username.trim()
+          ? parsed.username
+          : normalizeUsername(parsed.name),
+      role: parsed.role,
+      createdAt: parsed.createdAt,
+    };
   } catch {
     return null;
   }
