@@ -82,6 +82,7 @@ The backend:
 - validates the returned JSON
 - filters overlay targets against the current stage
 - computes `score_delta` in Python
+- withholds hard scores when confidence is too low or the frame is too ambiguous
 - escalates flagged sessions into the human review queue
 
 ### Request body
@@ -126,6 +127,8 @@ The backend:
 {
   "analysis_mode": "coaching",
   "step_status": "retry",
+  "grading_decision": "not_graded",
+  "grading_reason": "Not graded - retake required because the confidence was too low for a trustworthy score.",
   "confidence": 0.83,
   "visible_observations": [
     "entry zone is visible",
@@ -142,7 +145,7 @@ The backend:
   "coaching_message": "Rotate the driver slightly upward and start the bite more perpendicular to the surface.",
   "next_action": "Reposition the grip, retake the frame, and try the entry again.",
   "overlay_target_ids": ["entry_point", "needle_angle"],
-  "score_delta": 13,
+  "score_delta": 0,
   "safety_gate": {
     "status": "cleared",
     "confidence": 0.98,
@@ -159,13 +162,15 @@ The backend:
 
 - `analysis_mode`: `coaching` or `blocked`
 - `step_status`: `pass`, `retry`, `unclear`, or `unsafe`
+- `grading_decision`: `graded` or `not_graded`
+- `grading_reason`: explanation when the backend refuses to attach a trustworthy score
 - `confidence`: number from `0` to `1`
 - `visible_observations`: normalized list of visible cues the model could judge
 - `issues`: up to three structured issues
 - `coaching_message`: short coaching summary
 - `next_action`: concrete next step for the learner
 - `overlay_target_ids`: allowed overlay ids for the current stage only
-- `score_delta`: deterministic integer computed by the backend
+- `score_delta`: deterministic integer computed by the backend; this is `0` when the attempt is not graded
 - `safety_gate`: result of the simulation-only validation layer
 - `requires_human_review`: whether the session was queued for faculty review
 - `human_review_reason`: why the case was flagged
@@ -234,6 +239,8 @@ Generates the review-page debrief from stored session history.
       "stage_id": "needle_entry",
       "attempt": 1,
       "step_status": "retry",
+      "analysis_mode": "coaching",
+      "graded": true,
       "issues": [
         {
           "code": "angle_shallow",
@@ -256,11 +263,18 @@ Generates the review-page debrief from stored session history.
 }
 ```
 
+Optional request addition:
+
+- `learner_profile`: aggregated cross-session snapshot from the frontend, including `total_sessions`, `graded_attempts`, and top recurring issues for the same learner and procedure
+
 ### Event field notes
 
 - `stage_id`: current stage id
 - `attempt`: 1-based attempt number for that stage
 - `step_status`: `pass`, `retry`, `unclear`, or `unsafe`
+- `analysis_mode`: `coaching` or `blocked`
+- `graded`: whether that attempt should count as a trustworthy scored signal
+- `grading_reason`: optional explanation when the attempt was not graded
 - `issues`: structured issue list from a prior analyze response
 - `score_delta`: backend-computed score delta from that attempt
 - `coaching_message`: coaching text from the prior analyze response
@@ -275,6 +289,27 @@ Generates the review-page debrief from stored session history.
 ```json
 {
   "feedback_language": "en",
+  "graded_attempt_count": 4,
+  "not_graded_attempt_count": 1,
+  "error_fingerprint": [
+    {
+      "code": "angle_shallow",
+      "label": "shallow entry angle",
+      "count": 3,
+      "stage_ids": ["needle_entry"]
+    }
+  ],
+  "adaptive_drill": {
+    "title": "shallow entry angle mini drill",
+    "focus": "shallow entry angle",
+    "reason": "This drill targets the correction that shows up most often across your sessions: shallow entry angle.",
+    "instructions": [
+      "Do 5 slow reps that isolate shallow entry angle instead of running a full stitch.",
+      "Pause after each rep and check whether the correction stayed visible in frame.",
+      "Finish with 1 full captured attempt and compare it with the earlier pattern."
+    ],
+    "rep_target": "Target: 5 focused reps and 1 full capture."
+  },
   "strengths": [
     "You kept the practice surface centered during the attempt.",
     "Your grip remained stable enough to judge the frame.",
@@ -315,9 +350,12 @@ Generates the review-page debrief from stored session history.
 
 ### Response guarantees
 
+- `graded_attempt_count` and `not_graded_attempt_count` are always present
+- `error_fingerprint` is always present, even when it is empty
 - `strengths` always has 3 items
 - `improvement_areas` always has 3 items
 - `practice_plan` always has 3 items
+- `adaptive_drill` always returns one focused micro-drill
 - `equity_support_plan` always has 3 items
 - `audio_script` is always a single read-aloud coaching paragraph
 - `quiz` always has 3 question and answer pairs
@@ -340,10 +378,12 @@ The review page is powered by browser `localStorage`, not by backend persistence
 Each local session contains:
 
 - procedure id
+- optional learner ownership metadata
 - skill level
 - calibration state
 - per-stage events
 - score deltas
+- graded vs not-graded attempt state
 - coaching messages
 - optional visible observations, confidence, and next-action data
 - an optional cached debrief keyed by session review signature

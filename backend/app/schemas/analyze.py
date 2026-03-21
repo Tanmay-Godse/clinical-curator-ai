@@ -52,6 +52,8 @@ class AnalyzeFrameResponse(BaseModel):
 
     analysis_mode: Literal["coaching", "blocked"] = "coaching"
     step_status: Literal["pass", "retry", "unclear", "unsafe"]
+    grading_decision: Literal["graded", "not_graded"] = "graded"
+    grading_reason: str | None = None
     confidence: float = Field(ge=0, le=1)
     visible_observations: list[str]
     issues: list[Issue]

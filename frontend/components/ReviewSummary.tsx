@@ -4,8 +4,12 @@ import { useEffect, useState } from "react";
 
 import { canUseSpeechSynthesis, speakText, stopSpeechPlayback } from "@/lib/audio";
 import { getFeedbackLanguageLabel } from "@/lib/equity";
+import { inferEventGraded } from "@/lib/learnerProfile";
 import type {
+  AdaptiveDrill,
   DebriefResponse,
+  ErrorFingerprintItem,
+  LearnerProfileSnapshot,
   ProcedureDefinition,
   ReviewCase,
   SessionEvent,
@@ -13,12 +17,14 @@ import type {
 } from "@/lib/types";
 
 type ReviewSummaryProps = {
+  adaptiveDrill: AdaptiveDrill | null;
   session: SessionRecord;
   procedure: ProcedureDefinition | null;
   debrief: DebriefResponse | null;
   isDebriefLoading: boolean;
   debriefError: string | null;
   isOnline: boolean;
+  learnerProfile: LearnerProfileSnapshot | null;
   reviewCases: ReviewCase[];
 };
 
@@ -34,15 +40,24 @@ function getStatusClass(status: SessionEvent["stepStatus"]) {
 }
 
 export function ReviewSummary({
+  adaptiveDrill,
   session,
   procedure,
   debrief,
   isDebriefLoading,
   debriefError,
   isOnline,
+  learnerProfile,
   reviewCases,
 }: ReviewSummaryProps) {
   const totalScore = session.events.reduce((sum, event) => sum + event.scoreDelta, 0);
+  const gradedAttemptCount =
+    debrief?.graded_attempt_count ??
+    session.events.filter((event) => inferEventGraded(event)).length;
+  const notGradedAttemptCount =
+    debrief?.not_graded_attempt_count ?? session.events.length - gradedAttemptCount;
+  const errorFingerprint: ErrorFingerprintItem[] =
+    debrief?.error_fingerprint ?? learnerProfile?.recurring_issues ?? [];
   const latestFeedback = session.events.at(-1)?.coachingMessage ?? "No coaching recorded yet.";
   const [isSpeaking, setIsSpeaking] = useState(false);
 
@@ -113,6 +128,14 @@ export function ReviewSummary({
                 : "Standard"}
             </p>
           </article>
+          <article className="metric-card">
+            <p className="metric-label">Graded Attempts</p>
+            <p className="metric-value">{gradedAttemptCount}</p>
+          </article>
+          <article className="metric-card">
+            <p className="metric-label">Not Graded</p>
+            <p className="metric-value">{notGradedAttemptCount}</p>
+          </article>
         </div>
 
         <article className="review-card" style={{ marginTop: 22 }}>
@@ -159,6 +182,29 @@ export function ReviewSummary({
           {!isDebriefLoading && !debriefError && debrief ? (
             <div className="debrief-stack">
               <section className="debrief-block">
+                <strong>Personal error fingerprint</strong>
+                {errorFingerprint.length === 0 ? (
+                  <p className="review-subtle" style={{ marginTop: 12 }}>
+                    Capture a few more graded attempts to build a stable cross-session pattern.
+                  </p>
+                ) : (
+                  <ul className="feedback-list" style={{ marginTop: 12 }}>
+                    {errorFingerprint.map((item) => (
+                      <li key={`${item.code}-${item.count}`}>
+                        <strong>{item.label}</strong>
+                        <p className="review-subtle" style={{ marginTop: 8 }}>
+                          Repeated {item.count} time(s)
+                          {learnerProfile?.total_sessions
+                            ? ` across ${learnerProfile.total_sessions} saved session(s).`
+                            : "."}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="debrief-block">
                 <strong>Strengths</strong>
                 <ul className="feedback-list" style={{ marginTop: 12 }}>
                   {debrief.strengths.map((item, index) => (
@@ -174,6 +220,32 @@ export function ReviewSummary({
                     <li key={`${index}-${item}`}>{item}</li>
                   ))}
                 </ul>
+              </section>
+
+              <section className="debrief-block">
+                <strong>Adaptive drill prescription</strong>
+                {adaptiveDrill ? (
+                  <>
+                    <p className="review-subtle" style={{ marginTop: 12 }}>
+                      <strong>{adaptiveDrill.title}</strong>
+                    </p>
+                    <p className="review-subtle" style={{ marginTop: 10 }}>
+                      {adaptiveDrill.reason}
+                    </p>
+                    <ol className="numbered-list" style={{ marginTop: 12 }}>
+                      {adaptiveDrill.instructions.map((item, index) => (
+                        <li key={`${index}-${item}`}>{item}</li>
+                      ))}
+                    </ol>
+                    <p className="review-subtle" style={{ marginTop: 12 }}>
+                      {adaptiveDrill.rep_target}
+                    </p>
+                  </>
+                ) : (
+                  <p className="review-subtle" style={{ marginTop: 12 }}>
+                    The drill plan will appear once the session has enough pattern data.
+                  </p>
+                )}
               </section>
 
               <section className="debrief-block">
@@ -238,6 +310,59 @@ export function ReviewSummary({
               </section>
             </div>
           ) : null}
+
+          {!isDebriefLoading && !debrief && (errorFingerprint.length > 0 || adaptiveDrill) ? (
+            <div className="debrief-stack">
+              <section className="debrief-block">
+                <strong>Personal error fingerprint</strong>
+                {errorFingerprint.length === 0 ? (
+                  <p className="review-subtle" style={{ marginTop: 12 }}>
+                    Capture a few more graded attempts to build a stable cross-session pattern.
+                  </p>
+                ) : (
+                  <ul className="feedback-list" style={{ marginTop: 12 }}>
+                    {errorFingerprint.map((item) => (
+                      <li key={`${item.code}-${item.count}`}>
+                        <strong>{item.label}</strong>
+                        <p className="review-subtle" style={{ marginTop: 8 }}>
+                          Repeated {item.count} time(s)
+                          {learnerProfile?.total_sessions
+                            ? ` across ${learnerProfile.total_sessions} saved session(s).`
+                            : "."}
+                        </p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </section>
+
+              <section className="debrief-block">
+                <strong>Adaptive drill prescription</strong>
+                {adaptiveDrill ? (
+                  <>
+                    <p className="review-subtle" style={{ marginTop: 12 }}>
+                      <strong>{adaptiveDrill.title}</strong>
+                    </p>
+                    <p className="review-subtle" style={{ marginTop: 10 }}>
+                      {adaptiveDrill.reason}
+                    </p>
+                    <ol className="numbered-list" style={{ marginTop: 12 }}>
+                      {adaptiveDrill.instructions.map((item, index) => (
+                        <li key={`${index}-${item}`}>{item}</li>
+                      ))}
+                    </ol>
+                    <p className="review-subtle" style={{ marginTop: 12 }}>
+                      {adaptiveDrill.rep_target}
+                    </p>
+                  </>
+                ) : (
+                  <p className="review-subtle" style={{ marginTop: 12 }}>
+                    The drill plan will appear once the session has enough pattern data.
+                  </p>
+                )}
+              </section>
+            </div>
+          ) : null}
         </article>
 
         <article className="review-card" style={{ marginTop: 20 }}>
@@ -255,8 +380,11 @@ export function ReviewSummary({
                   </span>
                 </header>
                 <p className="review-subtle">
-                  Attempt {event.attempt}. Score delta {event.scoreDelta}. Overlay targets:{" "}
-                  {event.overlayTargetIds.join(", ") || "none"}.
+                  Attempt {event.attempt}.{" "}
+                  {inferEventGraded(event)
+                    ? `Score delta ${event.scoreDelta}.`
+                    : event.gradingReason ?? "Not graded - retake required."}{" "}
+                  Overlay targets: {event.overlayTargetIds.join(", ") || "none"}.
                 </p>
                 <p className="review-subtle">{event.coachingMessage}</p>
               </li>
@@ -289,6 +417,16 @@ export function ReviewSummary({
                   </p>
                   {caseItem.reviewer_notes ? (
                     <p className="review-subtle">Reviewer note: {caseItem.reviewer_notes}</p>
+                  ) : null}
+                  {caseItem.corrected_step_status ? (
+                    <p className="review-subtle">
+                      Corrected status: {caseItem.corrected_step_status}
+                    </p>
+                  ) : null}
+                  {caseItem.corrected_coaching_message ? (
+                    <p className="review-subtle">
+                      Corrected coaching: {caseItem.corrected_coaching_message}
+                    </p>
                   ) : null}
                 </li>
               ))}

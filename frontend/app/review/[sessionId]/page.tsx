@@ -6,6 +6,11 @@ import { useEffect, useState } from "react";
 
 import { ReviewSummary } from "@/components/ReviewSummary";
 import { toApiEquityMode } from "@/lib/equity";
+import {
+  buildLearnerProfileSnapshot,
+  buildLocalAdaptiveDrill,
+  inferEventGraded,
+} from "@/lib/learnerProfile";
 import { generateDebrief, getProcedure, listReviewCases } from "@/lib/api";
 import {
   buildSessionReviewSignature,
@@ -13,12 +18,15 @@ import {
   getAuthUser,
   getCachedDebrief,
   getSession,
+  listSessionsForOwnerProcedure,
   saveSessionDebrief,
 } from "@/lib/storage";
 import type {
+  AdaptiveDrill,
   AuthUser,
   DebriefRequest,
   DebriefResponse,
+  LearnerProfileSnapshot,
   ProcedureDefinition,
   ReviewCase,
   SessionRecord,
@@ -26,17 +34,24 @@ import type {
 
 const pendingDebriefRequests = new Map<string, Promise<DebriefResponse>>();
 
-function buildDebriefPayload(session: SessionRecord): DebriefRequest {
+function buildDebriefPayload(
+  session: SessionRecord,
+  learnerProfile: LearnerProfileSnapshot | null,
+): DebriefRequest {
   return {
     session_id: session.id,
     procedure_id: session.procedureId,
     skill_level: session.skillLevel,
     feedback_language: session.equityMode.feedbackLanguage,
     equity_mode: toApiEquityMode(session.equityMode),
+    learner_profile: learnerProfile ?? undefined,
     events: session.events.map((event) => ({
       stage_id: event.stageId,
       attempt: event.attempt,
       step_status: event.stepStatus,
+      analysis_mode: event.analysisMode ?? "coaching",
+      graded: inferEventGraded(event),
+      grading_reason: event.gradingReason,
       issues: event.issues,
       score_delta: event.scoreDelta,
       coaching_message: event.coachingMessage,
@@ -49,19 +64,27 @@ function buildDebriefPayload(session: SessionRecord): DebriefRequest {
   };
 }
 
-function getDebriefRequestKey(session: SessionRecord): string {
-  return `${session.id}:${buildSessionReviewSignature(session)}`;
+function getDebriefRequestKey(
+  session: SessionRecord,
+  learnerProfile: LearnerProfileSnapshot | null,
+): string {
+  return `${session.id}:${buildSessionReviewSignature(session, learnerProfile)}`;
 }
 
-function requestSessionDebrief(session: SessionRecord): Promise<DebriefResponse> {
-  const requestKey = getDebriefRequestKey(session);
+function requestSessionDebrief(
+  session: SessionRecord,
+  learnerProfile: LearnerProfileSnapshot | null,
+): Promise<DebriefResponse> {
+  const requestKey = getDebriefRequestKey(session, learnerProfile);
   const existingRequest = pendingDebriefRequests.get(requestKey);
 
   if (existingRequest) {
     return existingRequest;
   }
 
-  const nextRequest = generateDebrief(buildDebriefPayload(session)).finally(() => {
+  const nextRequest = generateDebrief(
+    buildDebriefPayload(session, learnerProfile),
+  ).finally(() => {
     pendingDebriefRequests.delete(requestKey);
   });
 
@@ -80,6 +103,12 @@ export default function ReviewPage() {
   const [reviewCases, setReviewCases] = useState<ReviewCase[]>([]);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [procedure, setProcedure] = useState<ProcedureDefinition | null>(null);
+  const [learnerProfile, setLearnerProfile] = useState<LearnerProfileSnapshot | null>(
+    null,
+  );
+  const [localAdaptiveDrill, setLocalAdaptiveDrill] = useState<AdaptiveDrill | null>(
+    null,
+  );
   const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
   const [debriefError, setDebriefError] = useState<string | null>(null);
   const [isDebriefLoading, setIsDebriefLoading] = useState(false);
@@ -130,11 +159,38 @@ export default function ReviewPage() {
 
     const existingSession = getSession(sessionId);
     setSession(existingSession);
-    setDebrief(existingSession ? getCachedDebrief(existingSession) : null);
+    setDebrief(existingSession ? getCachedDebrief(existingSession, null) : null);
     setDebriefError(null);
     setIsDebriefLoading(false);
     setIsSessionLoading(false);
   }, [authUser, sessionId]);
+
+  useEffect(() => {
+    if (!authUser || !session) {
+      setLearnerProfile(null);
+      setLocalAdaptiveDrill(null);
+      return;
+    }
+
+    const relatedSessions = listSessionsForOwnerProcedure(
+      authUser.username,
+      session.procedureId,
+    );
+    const sessionsForProfile = relatedSessions.some(
+      (item) => item.id === session.id,
+    )
+      ? relatedSessions
+      : [...relatedSessions, session];
+    const nextProfile = buildLearnerProfileSnapshot(
+      sessionsForProfile,
+      session.equityMode.feedbackLanguage,
+    );
+
+    setLearnerProfile(nextProfile);
+    setLocalAdaptiveDrill(
+      buildLocalAdaptiveDrill(nextProfile, session.equityMode.feedbackLanguage),
+    );
+  }, [authUser, session]);
 
   useEffect(() => {
     const procedureId = session?.procedureId;
@@ -179,7 +235,7 @@ export default function ReviewPage() {
 
     const sessionSnapshot = session;
 
-    const cachedDebrief = getCachedDebrief(sessionSnapshot);
+    const cachedDebrief = getCachedDebrief(sessionSnapshot, learnerProfile);
     if (cachedDebrief) {
       setDebrief(cachedDebrief);
       setDebriefError(null);
@@ -215,7 +271,10 @@ export default function ReviewPage() {
       setIsDebriefLoading(true);
 
       try {
-        const debriefResponse = await requestSessionDebrief(sessionSnapshot);
+        const debriefResponse = await requestSessionDebrief(
+          sessionSnapshot,
+          learnerProfile,
+        );
 
         if (cancelled) {
           return;
@@ -226,6 +285,7 @@ export default function ReviewPage() {
         const updatedSession = saveSessionDebrief(
           sessionSnapshot.id,
           debriefResponse,
+          learnerProfile,
         );
         if (updatedSession) {
           setSession(updatedSession);
@@ -250,7 +310,7 @@ export default function ReviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [isOnline, session]);
+  }, [isOnline, learnerProfile, session]);
 
   useEffect(() => {
     if (!session) {
@@ -368,10 +428,12 @@ export default function ReviewPage() {
         </section>
 
         <ReviewSummary
+          adaptiveDrill={debrief?.adaptive_drill ?? localAdaptiveDrill}
           debrief={debrief}
           debriefError={debriefError}
           isDebriefLoading={isDebriefLoading}
           isOnline={isOnline}
+          learnerProfile={learnerProfile}
           procedure={procedure}
           reviewCases={reviewCases}
           session={session}

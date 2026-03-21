@@ -61,6 +61,9 @@ def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     )
     coaching_message = analysis_draft.coaching_message.strip()
     next_action = analysis_draft.next_action.strip()
+    grading_decision, grading_reason = _determine_grading_decision(
+        draft=analysis_draft,
+    )
     requires_human_review, human_review_reason, review_source = _determine_human_review(
         draft=analysis_draft,
     )
@@ -84,6 +87,8 @@ def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     return AnalyzeFrameResponse(
         analysis_mode="coaching",
         step_status=analysis_draft.step_status,
+        grading_decision=grading_decision,
+        grading_reason=grading_reason,
         confidence=analysis_draft.confidence,
         visible_observations=visible_observations,
         issues=analysis_draft.issues,
@@ -92,10 +97,14 @@ def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
         next_action=next_action
         or f"Capture one more clear frame that shows {stage.objective.lower()}",
         overlay_target_ids=overlay_target_ids,
-        score_delta=compute_score_delta(
-            stage=stage,
-            step_status=analysis_draft.step_status,
-            issues=analysis_draft.issues,
+        score_delta=(
+            compute_score_delta(
+                stage=stage,
+                step_status=analysis_draft.step_status,
+                issues=analysis_draft.issues,
+            )
+            if grading_decision == "graded"
+            else 0
         ),
         safety_gate=safety_gate,
         requires_human_review=requires_human_review,
@@ -267,6 +276,25 @@ def _determine_human_review(
     return False, "", "quality_flag"
 
 
+def _determine_grading_decision(
+    *,
+    draft: AnalysisDraft,
+) -> tuple[str, str | None]:
+    if draft.step_status == "unclear":
+        return (
+            "not_graded",
+            "Not graded - retake required because the frame was too ambiguous to score reliably.",
+        )
+
+    if draft.confidence < settings.grading_confidence_threshold:
+        return (
+            "not_graded",
+            "Not graded - retake required because the confidence was too low for a trustworthy score.",
+        )
+
+    return "graded", None
+
+
 def _create_review_case_for_blocked_analysis(
     *,
     payload: AnalyzeFrameRequest,
@@ -314,6 +342,8 @@ def _build_blocked_analysis_response(
     return AnalyzeFrameResponse(
         analysis_mode="blocked",
         step_status="unsafe",
+        grading_decision="not_graded",
+        grading_reason="Not graded - retake required because the safety gate blocked autonomous coaching.",
         confidence=safety_gate.confidence,
         visible_observations=[
             f"{stage.title} analysis was paused by the safety gate.",

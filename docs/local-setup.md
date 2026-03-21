@@ -116,6 +116,7 @@ AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
 AI_SAFETY_MAX_TOKENS=600
 HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
+GRADING_CONFIDENCE_THRESHOLD=0.80
 ```
 
 #### Anthropic-Style
@@ -131,6 +132,9 @@ AI_DEBRIEF_MODEL=your_text_or_multimodal_model
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
+AI_SAFETY_MAX_TOKENS=600
+HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
+GRADING_CONFIDENCE_THRESHOLD=0.80
 ANTHROPIC_VERSION=2023-06-01
 ```
 
@@ -251,6 +255,8 @@ With a valid AI endpoint and a vision-capable model, this should return a respon
 
 - `analysis_mode`
 - `step_status`
+- `grading_decision`
+- `grading_reason` when the attempt is not scored
 - `confidence`
 - `visible_observations`
 - `issues`
@@ -278,7 +284,7 @@ This route always returns a structured debrief shape:
 
 - with empty `events`, it returns a simple default study summary
 - with non-empty `events`, it prefers model-backed output
-- it now also returns `equity_support_plan`, `audio_script`, and `feedback_language`
+- it now also returns `equity_support_plan`, `audio_script`, `feedback_language`, a cross-session `error_fingerprint`, and one `adaptive_drill`
 
 ## 9. Trainer Walkthrough
 
@@ -296,6 +302,8 @@ Once the backend and frontend are live:
 5. Capture a step with `Check My Step`.
 6. Finish the flow and open the review page to see:
    - the AI debrief
+   - the personal error fingerprint across saved sessions
+   - the adaptive drill prescription
    - the equity support plan
    - the audio coaching script
    - any offline-only practice logs
@@ -313,24 +321,8 @@ That page points to the repository assets in:
 - `open-library/rubrics/`
 - `open-library/benchmark/`
 - `docs/safer-skills-roadmap.md`
-- if the debrief AI path fails or returns a partial shape, the backend falls back to deterministic content
 
-## 8. Trainer Flow
-
-Once both servers are running:
-
-1. Open `http://localhost:3000`
-2. Sign in as a student from `/login`
-3. Allow camera access when prompted
-4. Place an orange, banana, or foam pad in view
-5. Choose a calibration mode
-6. Confirm the simulation-only checkbox before analysis
-7. Capture a frame with `Check My Step`
-8. Review the returned overlays, observations, coaching, or safety refusal
-9. Retry or advance through the stages
-10. Open the review page at the end of the session
-
-## 9. Human Review Queue
+## 11. Human Review Queue
 
 Admin reviewers can open `http://localhost:3000/admin/reviews` after signing in from `/login?role=admin`.
 
@@ -341,8 +333,9 @@ The queue collects:
 - unclear or unsafe outcomes
 
 Each case can be resolved with reviewer notes, a corrected status, and rubric feedback.
+Each resolved case can also carry corrected coaching text back into the review flow.
 
-## 10. Quality Checks
+## 12. Quality Checks
 
 ### Frontend
 
@@ -361,7 +354,7 @@ source .venv/bin/activate
 pytest
 ```
 
-## 11. Troubleshooting
+## 13. Troubleshooting
 
 ### The landing page loads but analysis returns `503`
 
@@ -387,6 +380,16 @@ AI_PROVIDER=anthropic
 ### The review page shows local history but fallback debrief text
 
 This means the review page loaded the session correctly, but fresh debrief generation was unavailable or invalid. The app now falls back to a deterministic study summary so the flow still works.
+
+### The trainer keeps saying "Not graded - retake required"
+
+This usually means either:
+
+- the returned frame was marked `unclear`
+- model confidence fell below `GRADING_CONFIDENCE_THRESHOLD`
+- the safety gate blocked or paused autonomous scoring
+
+Try retaking the frame with steadier lighting, a clearer view of the practice surface, and better tool visibility.
 
 ### The review page says no local session found
 
@@ -420,7 +423,7 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8002/api/v1
 
 Install a current Node.js release, then rerun `npm install` in `frontend/`.
 
-## 12. Current Limitations
+## 14. Current Limitations
 
 - one supported procedure
 - browser-local persistence only

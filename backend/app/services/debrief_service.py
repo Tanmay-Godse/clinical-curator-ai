@@ -3,7 +3,13 @@ from typing import Any
 
 from app.core.config import settings
 from app.schemas.analyze import FeedbackLanguage
-from app.schemas.debrief import DebriefRequest, DebriefResponse, QuizQuestion
+from app.schemas.debrief import (
+    AdaptiveDrill,
+    DebriefRequest,
+    DebriefResponse,
+    ErrorFingerprintItem,
+    QuizQuestion,
+)
 from app.services.ai_client import (
     AIConfigurationError,
     AIRequestError,
@@ -230,9 +236,11 @@ def _build_debrief_system_prompt(payload: DebriefRequest) -> str:
         "You are an AI clinical skills coach writing a brief review for a simulation-only suturing practice session. "
         "The learner is practicing a simple interrupted suture on a safe practice surface, not a patient. "
         f"Return every learner-facing field in the requested language '{payload.feedback_language}'. "
-        "Use the recorded stage events to identify strengths, improvement areas, a three-step practice plan, "
-        "a three-item equity_support_plan, a short audio_script for read-aloud coaching, and a three-question quiz. "
+        "Use the recorded stage events and learner_profile to identify strengths, improvement areas, a three-step practice plan, "
+        "a three-item equity_support_plan, a short audio_script for read-aloud coaching, a personal error_fingerprint, "
+        "one adaptive_drill, graded_attempt_count, not_graded_attempt_count, and a three-question quiz. "
         "Keep the tone encouraging, specific, educational, and easy to understand. "
+        "Only present a hard-scored summary when the graded_attempt_count supports it; not_graded attempts should be framed as retakes rather than performance failures. "
         "When equity_mode is enabled, use plain-language phrasing and keep instructions concise for low-resource practice settings. "
         "Do not invent patient-care claims or high-stakes medical advice."
     )
@@ -251,6 +259,11 @@ def _build_debrief_user_content(
         "skill_level": payload.skill_level,
         "feedback_language": payload.feedback_language,
         "equity_mode": payload.equity_mode.model_dump(mode="json"),
+        "learner_profile": (
+            payload.learner_profile.model_dump(mode="json")
+            if payload.learner_profile
+            else None
+        ),
         "attempt_count": len(payload.events),
         "total_score": sum(event.score_delta for event in payload.events),
         "events": [event.model_dump(mode="json") for event in payload.events],
@@ -271,6 +284,13 @@ def _build_debrief_user_content(
 def _build_fallback_debrief(payload: DebriefRequest) -> DebriefResponse:
     copy = _localized_copy(payload.feedback_language)
     equity_support_plan = _build_equity_support_plan(payload)
+    error_fingerprint = _build_error_fingerprint(payload)
+    adaptive_drill = _build_adaptive_drill(
+        payload.feedback_language,
+        error_fingerprint,
+    )
+    graded_events = _graded_events(payload)
+    not_graded_events = [event for event in payload.events if not _is_event_graded(event)]
 
     if not payload.events:
         strengths = [
@@ -291,6 +311,10 @@ def _build_fallback_debrief(payload: DebriefRequest) -> DebriefResponse:
 
         return DebriefResponse(
             feedback_language=payload.feedback_language,
+            graded_attempt_count=0,
+            not_graded_attempt_count=0,
+            error_fingerprint=error_fingerprint,
+            adaptive_drill=adaptive_drill,
             strengths=_normalize_text_items(strengths, []),
             improvement_areas=_normalize_text_items(improvement_areas, []),
             practice_plan=_normalize_text_items(practice_plan, []),
@@ -300,15 +324,23 @@ def _build_fallback_debrief(payload: DebriefRequest) -> DebriefResponse:
         )
 
     latest_event = payload.events[-1]
-    pass_events = [event for event in payload.events if event.step_status == "pass"]
-    unclear_events = [event for event in payload.events if event.step_status == "unclear"]
-    unsafe_events = [event for event in payload.events if event.step_status == "unsafe"]
-    issue_messages = _collect_issue_messages(payload)
+    pass_events = [event for event in graded_events if event.step_status == "pass"]
+    unsafe_events = [event for event in graded_events if event.step_status == "unsafe"]
+    issue_messages = _collect_issue_messages(payload, graded_only=True)
     latest_observation = _first_non_empty(latest_event.visible_observations)
     latest_stage = _format_stage_id(latest_event.stage_id)
+    top_issue_label = error_fingerprint[0].label if error_fingerprint else None
 
     strengths = [
-        copy["strength_logged_attempts"].format(count=len(payload.events)),
+        (
+            _format_graded_attempt_strength(
+                payload.feedback_language,
+                graded_attempt_count=len(graded_events),
+                total_attempt_count=len(payload.events),
+            )
+            if graded_events
+            else copy["strength_logged_attempts"].format(count=len(payload.events))
+        ),
         (
             copy["strength_passes"].format(count=len(pass_events))
             if pass_events
@@ -322,10 +354,19 @@ def _build_fallback_debrief(payload: DebriefRequest) -> DebriefResponse:
     ]
 
     improvement_areas = [
-        copy["improvement_latest_stage"].format(stage=latest_stage),
-        copy["improvement_unclear"]
-        if unclear_events
-        else copy["improvement_steady_frame"],
+        (
+            _format_not_graded_guidance(
+                payload.feedback_language,
+                count=len(not_graded_events),
+            )
+            if not_graded_events
+            else copy["improvement_latest_stage"].format(stage=latest_stage)
+        ),
+        (
+            copy["improvement_issue"].format(issue=top_issue_label)
+            if top_issue_label
+            else copy["improvement_steady_frame"]
+        ),
         copy["improvement_unsafe"]
         if unsafe_events
         else (
@@ -336,17 +377,23 @@ def _build_fallback_debrief(payload: DebriefRequest) -> DebriefResponse:
     ]
 
     practice_plan = [
-        copy["plan_repeat_stage"].format(stage=latest_stage),
+        f"{copy['plan_repeat_stage'].format(stage=latest_stage)} {adaptive_drill.instructions[0]}",
         (
-            copy["plan_issue"].format(issue=issue_messages[0])
-            if issue_messages
+            copy["plan_issue"].format(issue=top_issue_label)
+            if top_issue_label
             else copy["plan_focus_question"]
         ),
-        copy["plan_compare_review"],
+        adaptive_drill.instructions[2]
+        if adaptive_drill.instructions
+        else copy["plan_compare_review"],
     ]
 
     return DebriefResponse(
         feedback_language=payload.feedback_language,
+        graded_attempt_count=len(graded_events),
+        not_graded_attempt_count=len(not_graded_events),
+        error_fingerprint=error_fingerprint,
+        adaptive_drill=adaptive_drill,
         strengths=_normalize_text_items(strengths, []),
         improvement_areas=_normalize_text_items(improvement_areas, []),
         practice_plan=_normalize_text_items(practice_plan, []),
@@ -365,6 +412,22 @@ def _normalize_debrief_response(
 
     return DebriefResponse(
         feedback_language=fallback_response.feedback_language,
+        graded_attempt_count=_normalize_count(
+            response_data.get("graded_attempt_count"),
+            fallback_response.graded_attempt_count,
+        ),
+        not_graded_attempt_count=_normalize_count(
+            response_data.get("not_graded_attempt_count"),
+            fallback_response.not_graded_attempt_count,
+        ),
+        error_fingerprint=_normalize_error_fingerprint(
+            response_data.get("error_fingerprint"),
+            fallback_response.error_fingerprint,
+        ),
+        adaptive_drill=_normalize_adaptive_drill(
+            response_data.get("adaptive_drill"),
+            fallback_response.adaptive_drill,
+        ),
         strengths=_normalize_text_items(
             response_data.get("strengths"),
             fallback_response.strengths,
@@ -390,6 +453,55 @@ def _normalize_debrief_response(
             fallback_response.quiz,
         ),
     )
+
+
+def _normalize_count(value: Any, fallback: int) -> int:
+    if isinstance(value, int) and value >= 0:
+        return value
+    return fallback
+
+
+def _normalize_error_fingerprint(
+    value: Any,
+    fallback: list[ErrorFingerprintItem],
+) -> list[ErrorFingerprintItem]:
+    cleaned: list[ErrorFingerprintItem] = []
+    seen_codes: set[str] = set()
+
+    if isinstance(value, list):
+        for item in value:
+            if not isinstance(item, dict):
+                continue
+            try:
+                candidate = ErrorFingerprintItem.model_validate(item)
+            except Exception:
+                continue
+            if candidate.code in seen_codes:
+                continue
+            cleaned.append(candidate)
+            seen_codes.add(candidate.code)
+            if len(cleaned) == 3:
+                break
+
+    for item in fallback:
+        if item.code in seen_codes:
+            continue
+        cleaned.append(item)
+        seen_codes.add(item.code)
+        if len(cleaned) == 3:
+            break
+
+    return cleaned[:3]
+
+
+def _normalize_adaptive_drill(value: Any, fallback: AdaptiveDrill) -> AdaptiveDrill:
+    if not isinstance(value, dict):
+        return fallback
+
+    try:
+        return AdaptiveDrill.model_validate(value)
+    except Exception:
+        return fallback
 
 
 def _normalize_text_items(value: Any, fallback: list[str]) -> list[str]:
@@ -552,9 +664,204 @@ def _localized_copy(language: FeedbackLanguage) -> dict[str, str]:
     return LOCALIZED_COPY.get(language, LOCALIZED_COPY["en"])
 
 
-def _collect_issue_messages(payload: DebriefRequest) -> list[str]:
+def _graded_events(payload: DebriefRequest):
+    return [event for event in payload.events if _is_event_graded(event)]
+
+
+def _is_event_graded(event) -> bool:
+    return event.analysis_mode == "coaching" and event.graded
+
+
+def _build_error_fingerprint(payload: DebriefRequest) -> list[ErrorFingerprintItem]:
+    if payload.learner_profile and payload.learner_profile.recurring_issues:
+        return payload.learner_profile.recurring_issues[:3]
+
+    issue_index: dict[str, ErrorFingerprintItem] = {}
+
+    for event in _graded_events(payload):
+        for issue in event.issues:
+            existing = issue_index.get(issue.code)
+            if existing is None:
+                issue_index[issue.code] = ErrorFingerprintItem(
+                    code=issue.code,
+                    label=_humanize_issue_label(issue.code, issue.message),
+                    count=1,
+                    stage_ids=[event.stage_id],
+                )
+                continue
+
+            next_stage_ids = existing.stage_ids
+            if event.stage_id not in next_stage_ids and len(next_stage_ids) < 6:
+                next_stage_ids = [*next_stage_ids, event.stage_id]
+
+            issue_index[issue.code] = existing.model_copy(
+                update={
+                    "count": existing.count + 1,
+                    "stage_ids": next_stage_ids,
+                }
+            )
+
+    return sorted(
+        issue_index.values(),
+        key=lambda item: (-item.count, item.label.lower()),
+    )[:3]
+
+
+def _build_adaptive_drill(
+    language: FeedbackLanguage,
+    error_fingerprint: list[ErrorFingerprintItem],
+) -> AdaptiveDrill:
+    focus_label = error_fingerprint[0].label if error_fingerprint else _default_drill_focus(language)
+
+    return AdaptiveDrill(
+        title=_adaptive_drill_title(language, focus_label),
+        focus=focus_label,
+        reason=_adaptive_drill_reason(language, focus_label),
+        instructions=[
+            _adaptive_drill_step(language, 1, focus_label),
+            _adaptive_drill_step(language, 2, focus_label),
+            _adaptive_drill_step(language, 3, focus_label),
+        ],
+        rep_target=_adaptive_drill_rep_target(language),
+    )
+
+
+def _format_graded_attempt_strength(
+    language: FeedbackLanguage,
+    *,
+    graded_attempt_count: int,
+    total_attempt_count: int,
+) -> str:
+    if language == "es":
+        return (
+            f"Tienes {graded_attempt_count} intento(s) calificados de {total_attempt_count} registro(s), "
+            "asi que el resumen ya se apoya en repeticiones que el sistema pudo juzgar con confianza."
+        )
+    if language == "fr":
+        return (
+            f"Vous avez {graded_attempt_count} tentative(s) notees sur {total_attempt_count} essai(s), "
+            "ce qui donne deja une base suffisamment fiable pour comparer la technique."
+        )
+    if language == "hi":
+        return (
+            f"Aapke paas {total_attempt_count} logged attempts me se {graded_attempt_count} graded attempts hain, "
+            "isliye summary unhi repetitions par bani hai jinhen system bharose se judge kar saka."
+        )
+
+    return (
+        f"You have {graded_attempt_count} graded attempt(s) out of {total_attempt_count} logged attempt(s), "
+        "so the summary is anchored to repetitions the system could judge with confidence."
+    )
+
+
+def _format_not_graded_guidance(language: FeedbackLanguage, *, count: int) -> str:
+    if language == "es":
+        return (
+            f"{count} intento(s) quedaron sin calificar por baja confianza o imagen ambigua. "
+            "Repitelos con un encuadre mas claro antes de usarlos como señal de progreso."
+        )
+    if language == "fr":
+        return (
+            f"{count} tentative(s) n ont pas ete notees a cause d une confiance trop basse ou d une image ambiguë. "
+            "Refaites-les avec un cadrage plus net avant de les traiter comme un vrai signal de progression."
+        )
+    if language == "hi":
+        return (
+            f"{count} attempts ko grade nahi kiya gaya kyunki confidence kam tha ya frame ambiguous tha. "
+            "Progress compare karne se pehle inhen clearer framing ke saath dobara lijiye."
+        )
+
+    return (
+        f"{count} attempt(s) were not graded because the confidence was too low or the frame was ambiguous. "
+        "Retake them with clearer framing before treating them as progress signals."
+    )
+
+
+def _default_drill_focus(language: FeedbackLanguage) -> str:
+    if language == "es":
+        return "claridad de imagen"
+    if language == "fr":
+        return "clarte de l image"
+    if language == "hi":
+        return "frame clarity"
+    return "frame clarity"
+
+
+def _adaptive_drill_title(language: FeedbackLanguage, focus_label: str) -> str:
+    if language == "es":
+        return f"Mini ejercicio: {focus_label}"
+    if language == "fr":
+        return f"Mini exercice : {focus_label}"
+    if language == "hi":
+        return f"Mini drill: {focus_label}"
+    return f"{focus_label} mini drill"
+
+
+def _adaptive_drill_reason(language: FeedbackLanguage, focus_label: str) -> str:
+    if language == "es":
+        return f"Este ejercicio apunta a la correccion que mas se repite en tus sesiones: {focus_label}."
+    if language == "fr":
+        return f"Cet exercice cible la correction qui revient le plus souvent dans vos sessions : {focus_label}."
+    if language == "hi":
+        return f"Yeh drill aapki sessions me sabse zyada repeat hone wali correction par focused hai: {focus_label}."
+    return f"This drill targets the correction that shows up most often across your sessions: {focus_label}."
+
+
+def _adaptive_drill_step(
+    language: FeedbackLanguage,
+    step_number: int,
+    focus_label: str,
+) -> str:
+    steps = {
+        "en": [
+            f"Do 5 slow reps that focus only on {focus_label}, not the full stitch.",
+            "Pause after each rep and check whether the correction stayed visible in frame.",
+            "Finish with 1 full captured attempt and compare it against the earlier pattern.",
+        ],
+        "es": [
+            f"Haz 5 repeticiones lentas enfocadas solo en {focus_label}, no en toda la sutura.",
+            "Haz una pausa despues de cada repeticion y verifica si la correccion sigue visible en la imagen.",
+            "Termina con 1 intento completo capturado y comparalo con el patron anterior.",
+        ],
+        "fr": [
+            f"Faites 5 repetitions lentes en vous concentrant seulement sur {focus_label}, pas sur toute la suture.",
+            "Marquez une pause apres chaque repetition pour verifier si la correction reste visible dans l image.",
+            "Terminez par 1 tentative complete capturee puis comparez-la au motif precedent.",
+        ],
+        "hi": [
+            f"5 slow reps kijiye jisme focus sirf {focus_label} par ho, poore stitch par nahi.",
+            "Har rep ke baad ruk kar dekhiye ki correction frame me clear rahi ya nahi.",
+            "Akhir me 1 full captured attempt kijiye aur use pichhle pattern se compare kijiye.",
+        ],
+    }
+    language_key = language if language in steps else "en"
+    return steps[language_key][step_number - 1]
+
+
+def _adaptive_drill_rep_target(language: FeedbackLanguage) -> str:
+    if language == "es":
+        return "Objetivo: 5 repeticiones enfocadas y 1 captura completa."
+    if language == "fr":
+        return "Objectif : 5 repetitions ciblees puis 1 capture complete."
+    if language == "hi":
+        return "Target: 5 focused reps aur 1 full capture."
+    return "Target: 5 focused reps and 1 full capture."
+
+
+def _humanize_issue_label(code: str, message: str) -> str:
+    cleaned_message = message.strip().rstrip(".")
+    if cleaned_message:
+        sentence = cleaned_message[0].upper() + cleaned_message[1:]
+        if len(sentence) <= 60:
+            return sentence
+
+    return code.replace("_", " ").replace("-", " ").strip()
+
+
+def _collect_issue_messages(payload: DebriefRequest, *, graded_only: bool = False) -> list[str]:
     messages: list[str] = []
-    for event in reversed(payload.events):
+    events = _graded_events(payload) if graded_only else payload.events
+    for event in reversed(events):
         for issue in event.issues:
             candidate = issue.message.strip()
             if candidate and candidate not in messages:

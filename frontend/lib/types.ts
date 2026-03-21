@@ -104,6 +104,8 @@ export type SafetyGateResult = {
 export type AnalyzeFrameResponse = {
   analysis_mode: "coaching" | "blocked";
   step_status: StepStatus;
+  grading_decision: "graded" | "not_graded";
+  grading_reason?: string | null;
   confidence: number;
   visible_observations: string[];
   issues: Issue[];
@@ -122,6 +124,8 @@ export type SessionEvent = {
   attempt: number;
   stepStatus: StepStatus;
   analysisMode?: "coaching" | "blocked";
+  graded?: boolean;
+  gradingReason?: string;
   issues: Issue[];
   scoreDelta: number;
   coachingMessage: string;
@@ -140,6 +144,9 @@ export type DebriefEventRequest = {
   stage_id: string;
   attempt: number;
   step_status: StepStatus;
+  analysis_mode: "coaching" | "blocked";
+  graded: boolean;
+  grading_reason?: string;
   issues: Issue[];
   score_delta: number;
   coaching_message: string;
@@ -155,17 +162,43 @@ export type QuizQuestion = {
   answer: string;
 };
 
+export type ErrorFingerprintItem = {
+  code: string;
+  label: string;
+  count: number;
+  stage_ids: string[];
+};
+
+export type AdaptiveDrill = {
+  title: string;
+  focus: string;
+  reason: string;
+  instructions: string[];
+  rep_target: string;
+};
+
+export type LearnerProfileSnapshot = {
+  total_sessions: number;
+  graded_attempts: number;
+  recurring_issues: ErrorFingerprintItem[];
+};
+
 export type DebriefRequest = {
   session_id: string;
   procedure_id: string;
   skill_level: SkillLevel;
   feedback_language: FeedbackLanguage;
   equity_mode: ApiEquityMode;
+  learner_profile?: LearnerProfileSnapshot;
   events: DebriefEventRequest[];
 };
 
 export type DebriefResponse = {
   feedback_language: FeedbackLanguage;
+  graded_attempt_count: number;
+  not_graded_attempt_count: number;
+  error_fingerprint: ErrorFingerprintItem[];
+  adaptive_drill: AdaptiveDrill;
   strengths: string[];
   improvement_areas: string[];
   practice_plan: string[];
@@ -246,6 +279,7 @@ export type StoredDebrief = {
 export type SessionRecord = {
   id: string;
   procedureId: string;
+  ownerUsername?: string;
   skillLevel: SkillLevel;
   calibration: Calibration;
   equityMode: EquityModeSettings;

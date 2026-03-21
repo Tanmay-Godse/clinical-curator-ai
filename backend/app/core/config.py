@@ -79,6 +79,10 @@ class Settings(BaseSettings):
         default=0.78,
         validation_alias=AliasChoices("HUMAN_REVIEW_CONFIDENCE_THRESHOLD"),
     )
+    grading_confidence_threshold: float = Field(
+        default=0.8,
+        validation_alias=AliasChoices("GRADING_CONFIDENCE_THRESHOLD"),
+    )
     anthropic_version: str = Field(
         default="2023-06-01",
         validation_alias=AliasChoices("ANTHROPIC_VERSION"),

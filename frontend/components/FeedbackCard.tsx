@@ -127,10 +127,18 @@ export function FeedbackCard({
                 {response.step_status}
               </span>
             </div>
-            <p className="feedback-copy">
-              Confidence {Math.round(response.confidence * 100)}%. Score delta{" "}
-              {response.score_delta}.
-            </p>
+            {response.grading_decision === "graded" ? (
+              <p className="feedback-copy">
+                Confidence {Math.round(response.confidence * 100)}%. Score delta{" "}
+                {response.score_delta}.
+              </p>
+            ) : (
+              <p className="feedback-copy">
+                Not graded - retake required.{" "}
+                {response.grading_reason ??
+                  "The frame was not reliable enough for a trustworthy score."}
+              </p>
+            )}
           </div>
 
           <div className="feedback-block">

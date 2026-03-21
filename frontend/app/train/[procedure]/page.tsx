@@ -137,10 +137,12 @@ export default function TrainProcedurePage() {
 
   useEffect(() => {
     const activeProcedureId = procedureId;
+    const currentUser = authUser;
 
-    if (!authUser) {
+    if (!currentUser) {
       return;
     }
+    const currentUsername = currentUser.username;
 
     if (!activeProcedureId) {
       setProcedureError("No procedure id was provided in the route.");
@@ -163,7 +165,18 @@ export default function TrainProcedurePage() {
           return;
         }
 
-        const activeSession = getOrCreateActiveSession(nextProcedure.id, "beginner");
+        let activeSession = getOrCreateActiveSession(
+          nextProcedure.id,
+          "beginner",
+          currentUsername,
+        );
+        if (!activeSession.ownerUsername) {
+          activeSession = saveSession({
+            ...activeSession,
+            ownerUsername: currentUsername,
+            updatedAt: new Date().toISOString(),
+          });
+        }
         setProcedure(nextProcedure);
         setSession(activeSession);
         setSkillLevel(activeSession.skillLevel);
@@ -214,11 +227,13 @@ export default function TrainProcedurePage() {
   const canAdvance =
     feedbackStageId === currentStageId &&
     feedback?.step_status === "pass" &&
+    feedback?.grading_decision === "graded" &&
     Boolean(procedure && findNextStageId(procedure, currentStageId));
 
   const canFinishReview =
     feedbackStageId === currentStageId &&
     feedback?.step_status === "pass" &&
+    feedback?.grading_decision === "graded" &&
     procedure &&
     !findNextStageId(procedure, currentStageId);
 
@@ -275,7 +290,11 @@ export default function TrainProcedurePage() {
       return;
     }
 
-    const rawFreshSession = startFreshSession(procedure.id, skillLevel);
+    const rawFreshSession = startFreshSession(
+      procedure.id,
+      skillLevel,
+      authUser?.username,
+    );
     const freshSession = saveSession({
       ...rawFreshSession,
       equityMode,
@@ -383,6 +402,8 @@ export default function TrainProcedurePage() {
         attempt,
         stepStatus: response.step_status,
         analysisMode: response.analysis_mode,
+        graded: response.grading_decision === "graded",
+        gradingReason: response.grading_reason ?? undefined,
         issues: response.issues,
         scoreDelta: response.score_delta,
         coachingMessage: response.coaching_message,
@@ -399,6 +420,7 @@ export default function TrainProcedurePage() {
 
       persistSession({
         ...session,
+        ownerUsername: session.ownerUsername ?? authUser.username,
         skillLevel,
         calibration,
         equityMode,

@@ -278,6 +278,16 @@ export default function AdminReviewPage() {
                     <div className="feedback-block" style={{ marginTop: 16 }}>
                       <strong>Resolved by {caseItem.reviewer_name}</strong>
                       <p className="feedback-copy">{caseItem.reviewer_notes}</p>
+                      {caseItem.corrected_step_status ? (
+                        <p className="feedback-copy">
+                          Corrected status: {caseItem.corrected_step_status}
+                        </p>
+                      ) : null}
+                      {caseItem.corrected_coaching_message ? (
+                        <p className="feedback-copy">
+                          Corrected coaching: {caseItem.corrected_coaching_message}
+                        </p>
+                      ) : null}
                       {caseItem.rubric_feedback ? (
                         <p className="feedback-copy">{caseItem.rubric_feedback}</p>
                       ) : null}

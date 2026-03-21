@@ -5,7 +5,7 @@ from app.api.routes import debrief as debrief_route
 from app.api.routes import review_cases as review_cases_route
 from app.main import app
 from app.schemas.analyze import AnalyzeFrameResponse, Issue, SafetyGateResult
-from app.schemas.debrief import DebriefResponse, QuizQuestion
+from app.schemas.debrief import AdaptiveDrill, DebriefResponse, ErrorFingerprintItem, QuizQuestion
 from app.services.ai_client import AIConfigurationError
 from app.services import review_queue_service
 
@@ -89,6 +89,27 @@ def test_debrief_route_returns_ai_summary(monkeypatch) -> None:
     def fake_generate_session_debrief(_payload):
         return DebriefResponse(
             feedback_language="en",
+            graded_attempt_count=1,
+            not_graded_attempt_count=0,
+            error_fingerprint=[
+                ErrorFingerprintItem(
+                    code="angle_shallow",
+                    label="shallow entry angle",
+                    count=2,
+                    stage_ids=["needle_entry"],
+                )
+            ],
+            adaptive_drill=AdaptiveDrill(
+                title="shallow entry angle mini drill",
+                focus="shallow entry angle",
+                reason="This drill targets your most repeated issue across sessions: shallow entry angle.",
+                instructions=[
+                    "Do 5 slow reps that isolate the entry angle.",
+                    "Pause after each rep and check whether the correction stayed visible.",
+                    "Finish with 1 full captured attempt and compare it with the earlier pattern.",
+                ],
+                rep_target="Target: 5 focused reps and 1 full capture.",
+            ),
             strengths=[
                 "You kept the practice surface centered during the attempt.",
                 "Your grip remained stable enough to judge the frame.",
@@ -171,6 +192,8 @@ def test_debrief_route_returns_ai_summary(monkeypatch) -> None:
     assert len(data["practice_plan"]) == 3
     assert len(data["equity_support_plan"]) == 3
     assert data["feedback_language"] == "en"
+    assert data["graded_attempt_count"] == 1
+    assert len(data["error_fingerprint"]) == 1
     assert data["audio_script"]
     assert len(data["quiz"]) == 3
 

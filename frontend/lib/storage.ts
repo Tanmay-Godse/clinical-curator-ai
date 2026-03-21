@@ -5,6 +5,7 @@ import type {
   CreateAuthAccountInput,
   DebriefResponse,
   EquityModeSettings,
+  LearnerProfileSnapshot,
   LoginAuthInput,
   OfflinePracticeLog,
   SessionRecord,
@@ -92,6 +93,8 @@ function normalizeSessionRecord(
   return {
     id: session.id ?? sessionId,
     procedureId: session.procedureId,
+    ownerUsername:
+      typeof session.ownerUsername === "string" ? session.ownerUsername : undefined,
     skillLevel: session.skillLevel,
     calibration: session.calibration ?? createDefaultCalibration(),
     equityMode,
@@ -178,6 +181,11 @@ function persistAuthUser(user: AuthUser): AuthUser {
 function isValidDebriefResponse(response: Partial<DebriefResponse>): response is DebriefResponse {
   return (
     typeof response.feedback_language === "string" &&
+    typeof response.graded_attempt_count === "number" &&
+    typeof response.not_graded_attempt_count === "number" &&
+    Array.isArray(response.error_fingerprint) &&
+    typeof response.adaptive_drill === "object" &&
+    response.adaptive_drill !== null &&
     Array.isArray(response.strengths) &&
     Array.isArray(response.improvement_areas) &&
     Array.isArray(response.practice_plan) &&
@@ -197,6 +205,22 @@ export function saveSession(session: SessionRecord): SessionRecord {
 
 export function getSession(sessionId: string): SessionRecord | null {
   return readSessions()[sessionId] ?? null;
+}
+
+export function listSessions(): SessionRecord[] {
+  return Object.values(readSessions()).sort((left, right) =>
+    left.createdAt < right.createdAt ? 1 : -1,
+  );
+}
+
+export function listSessionsForOwnerProcedure(
+  ownerUsername: string,
+  procedureId: string,
+): SessionRecord[] {
+  return listSessions().filter(
+    (session) =>
+      session.procedureId === procedureId && session.ownerUsername === ownerUsername,
+  );
 }
 
 export async function createAuthAccount(
@@ -312,15 +336,22 @@ export function clearAuthUser() {
   window.localStorage.removeItem(AUTH_USER_KEY);
 }
 
-export function buildSessionReviewSignature(session: SessionRecord): string {
+export function buildSessionReviewSignature(
+  session: SessionRecord,
+  learnerProfile?: LearnerProfileSnapshot | null,
+): string {
   return JSON.stringify({
     events: session.events,
     skillLevel: session.skillLevel,
     equityMode: session.equityMode,
+    learnerProfile,
   });
 }
 
-export function getCachedDebrief(session: SessionRecord): DebriefResponse | null {
+export function getCachedDebrief(
+  session: SessionRecord,
+  learnerProfile?: LearnerProfileSnapshot | null,
+): DebriefResponse | null {
   if (!session.debrief) {
     return null;
   }
@@ -329,7 +360,7 @@ export function getCachedDebrief(session: SessionRecord): DebriefResponse | null
     return null;
   }
 
-  return session.debrief.reviewSignature === buildSessionReviewSignature(session)
+  return session.debrief.reviewSignature === buildSessionReviewSignature(session, learnerProfile)
     ? session.debrief.response
     : null;
 }
@@ -337,6 +368,7 @@ export function getCachedDebrief(session: SessionRecord): DebriefResponse | null
 export function saveSessionDebrief(
   sessionId: string,
   response: DebriefResponse,
+  learnerProfile?: LearnerProfileSnapshot | null,
 ): SessionRecord | null {
   const session = getSession(sessionId);
 
@@ -348,7 +380,7 @@ export function saveSessionDebrief(
     ...session,
     debrief: {
       response,
-      reviewSignature: buildSessionReviewSignature(session),
+      reviewSignature: buildSessionReviewSignature(session, learnerProfile),
       generatedAt: new Date().toISOString(),
     },
   });
@@ -357,12 +389,14 @@ export function saveSessionDebrief(
 export function createSession(
   procedureId: string,
   skillLevel: SkillLevel,
+  ownerUsername?: string,
 ): SessionRecord {
   const timestamp = new Date().toISOString();
 
   return {
     id: crypto.randomUUID(),
     procedureId,
+    ownerUsername,
     skillLevel,
     calibration: createDefaultCalibration(),
     equityMode: createDefaultEquityMode(),
@@ -376,14 +410,16 @@ export function createSession(
 export function startFreshSession(
   procedureId: string,
   skillLevel: SkillLevel,
+  ownerUsername?: string,
 ): SessionRecord {
-  const session = createSession(procedureId, skillLevel);
+  const session = createSession(procedureId, skillLevel, ownerUsername);
   return saveSession(session);
 }
 
 export function getOrCreateActiveSession(
   procedureId: string,
   skillLevel: SkillLevel,
+  ownerUsername?: string,
 ): SessionRecord {
   const activeId = window.localStorage.getItem(activeSessionKey(procedureId));
 
@@ -394,5 +430,5 @@ export function getOrCreateActiveSession(
     }
   }
 
-  return startFreshSession(procedureId, skillLevel);
+  return startFreshSession(procedureId, skillLevel, ownerUsername);
 }
