@@ -3,7 +3,7 @@
 The backend exposes a small API under:
 
 ```text
-http://localhost:8000/api/v1
+http://localhost:8001/api/v1
 ```
 
 The frontend only talks to this backend. Browser clients do not call Anthropic or OpenAI-compatible model APIs directly.
@@ -23,7 +23,7 @@ Returns a simple service health payload.
 ### Example
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8001/api/v1/health
 ```
 
 ### Response
@@ -43,7 +43,7 @@ Returns the procedure definition used by the trainer UI.
 ### Example
 
 ```bash
-curl http://localhost:8000/api/v1/procedures/simple-interrupted-suture
+curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 ```
 
 ### Response shape
@@ -172,8 +172,8 @@ The backend:
 
 - a vision-capable model is required for this route
 - if the safety gate blocks the image, the response still returns `200` with `analysis_mode="blocked"`
-- `Qwen/Qwen2.5-VL-3B-Instruct` and `Qwen/Qwen2.5-Omni-7B` are good OpenAI-compatible examples
-- `Qwen3-4B` is not suitable for this route because it is text-only
+- `chaitnya26/Qwen2.5-Omni-3B-Fork` and `Qwen/Qwen2.5-VL-3B-Instruct` are good OpenAI-compatible examples
+- text-only models are not suitable for this route because image input is required
 
 ## `GET /review-cases`
 

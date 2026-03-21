@@ -28,7 +28,7 @@ class Settings(BaseSettings):
         ),
     )
     ai_analysis_model: str = Field(
-        default="Qwen/Qwen2.5-VL-3B-Instruct",
+        default="chaitnya26/Qwen2.5-Omni-3B-Fork",
         validation_alias=AliasChoices(
             "AI_ANALYSIS_MODEL",
             "OPENAI_ANALYSIS_MODEL",
@@ -36,7 +36,7 @@ class Settings(BaseSettings):
         ),
     )
     ai_debrief_model: str = Field(
-        default="Qwen/Qwen2.5-VL-3B-Instruct",
+        default="chaitnya26/Qwen2.5-Omni-3B-Fork",
         validation_alias=AliasChoices(
             "AI_DEBRIEF_MODEL",
             "OPENAI_DEBRIEF_MODEL",

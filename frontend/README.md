@@ -32,7 +32,7 @@ npm run build
 ## Environment
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 ```
 
 This should point at the FastAPI backend, not directly at your model server.

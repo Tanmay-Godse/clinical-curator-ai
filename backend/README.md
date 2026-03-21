@@ -20,7 +20,7 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 ```
 
 ## Environment Reference
@@ -33,8 +33,8 @@ SIMULATION_ONLY=true
 AI_PROVIDER=auto
 AI_API_BASE_URL=http://localhost:8000/v1
 AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=Qwen/Qwen2.5-Omni-7B
-AI_DEBRIEF_MODEL=Qwen/Qwen2.5-Omni-7B
+AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
+AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
@@ -82,15 +82,18 @@ Use an explicit `AI_PROVIDER` override if your proxy URL is ambiguous.
 AI_PROVIDER=auto
 AI_API_BASE_URL=http://localhost:8000/v1
 AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=Qwen/Qwen2.5-Omni-7B
-AI_DEBRIEF_MODEL=Qwen/Qwen2.5-Omni-7B
+AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
+AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
 ```
 
 Example local server:
 
 ```bash
-vllm serve Qwen/Qwen2.5-Omni-7B --api-key EMPTY
+vllm serve chaitnya26/Qwen2.5-Omni-3B-Fork --port 8000 --api-key EMPTY
 ```
+
+The local docs assume vLLM stays on port `8000` and this FastAPI backend runs on port `8001`.
+Use a vision-capable model for `AI_ANALYSIS_MODEL`. Text-only models will not work for the analyze route.
 
 ### Anthropic-Style
 

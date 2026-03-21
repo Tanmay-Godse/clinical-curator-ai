@@ -47,17 +47,19 @@ Recommended when you want to run local Qwen models.
 Example server:
 
 ```bash
-vllm serve Qwen/Qwen2.5-Omni-7B --api-key EMPTY
+vllm serve chaitnya26/Qwen2.5-Omni-3B-Fork --port 8000 --api-key EMPTY
 ```
 
 Good model choices:
 
+- `chaitnya26/Qwen2.5-Omni-3B-Fork`: good single-model option for both analysis and debrief
 - `Qwen/Qwen2.5-VL-3B-Instruct`: lighter vision-capable option
-- `Qwen/Qwen2.5-Omni-7B`: stronger multimodal option for both analysis and debrief
 
 Do not use:
 
-- `Qwen3-4B` for `/api/v1/analyze-frame`, because it is text-only
+- text-only models for `/api/v1/analyze-frame`
+
+This guide assumes vLLM stays on port `8000` and the FastAPI backend runs on port `8001`.
 
 ### Option B: Anthropic-Style Endpoint
 
@@ -105,8 +107,8 @@ SIMULATION_ONLY=true
 AI_PROVIDER=auto
 AI_API_BASE_URL=http://localhost:8000/v1
 AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=Qwen/Qwen2.5-Omni-7B
-AI_DEBRIEF_MODEL=Qwen/Qwen2.5-Omni-7B
+AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
+AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
@@ -143,13 +145,13 @@ Older environment names such as `OPENAI_API_BASE_URL` and `ANTHROPIC_API_KEY` st
 ### Start the Backend
 
 ```bash
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 ```
 
 Expected result:
 
 ```text
-Uvicorn running on http://127.0.0.1:8000
+Uvicorn running on http://127.0.0.1:8001
 ```
 
 ## 5. Frontend Setup
@@ -175,7 +177,7 @@ npm run dev
 Default frontend environment:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 ```
 
 This should point at the backend API, not at your model server.
@@ -197,7 +199,7 @@ Before testing the trainer UI, verify the backend from another terminal.
 ### Health Check
 
 ```bash
-curl http://localhost:8000/api/v1/health
+curl http://localhost:8001/api/v1/health
 ```
 
 Expected result:
@@ -209,7 +211,7 @@ Expected result:
 ### Procedure Metadata
 
 ```bash
-curl http://localhost:8000/api/v1/procedures/simple-interrupted-suture
+curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 ```
 
 This should return:
@@ -222,7 +224,7 @@ This should return:
 ### Analyze Endpoint
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/analyze-frame \
+curl -X POST http://localhost:8001/api/v1/analyze-frame \
   -H 'Content-Type: application/json' \
   -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ==","simulation_confirmation":true}'
 ```
@@ -249,7 +251,7 @@ If the upstream model request fails or returns invalid JSON, this route returns 
 ### Debrief Endpoint
 
 ```bash
-curl -X POST http://localhost:8000/api/v1/debrief \
+curl -X POST http://localhost:8001/api/v1/debrief \
   -H 'Content-Type: application/json' \
   -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","events":[]}'
 ```
@@ -345,20 +347,20 @@ Use the same:
 
 that created the session during training.
 
-### Port `3000` or `8000` is already in use
+### Port `3000`, `8000`, or `8001` is already in use
 
 Run the service on a different port and update the dependent environment variable.
 
 Example backend:
 
 ```bash
-uvicorn app.main:app --reload --port 8001
+uvicorn app.main:app --reload --port 8002
 ```
 
 Then update:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8002/api/v1
 ```
 
 ### `npm` or `node` is missing

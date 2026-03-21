@@ -1,4 +1,5 @@
 from app.services import ai_client
+from app.providers import anthropic, openai_compatible
 
 
 class FakeResponse:
@@ -35,7 +36,7 @@ def test_send_json_message_converts_multimodal_payload(monkeypatch) -> None:
     monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "http://localhost:8000/v1")
     monkeypatch.setattr(ai_client.settings, "ai_api_key", "EMPTY")
     monkeypatch.setattr(ai_client.settings, "ai_timeout_seconds", 45.0)
-    monkeypatch.setattr(ai_client.httpx, "post", fake_post)
+    monkeypatch.setattr(openai_compatible.httpx, "post", fake_post)
 
     response = ai_client.send_json_message(
         model="Qwen/Qwen2.5-VL-3B-Instruct",
@@ -87,7 +88,7 @@ def test_send_json_message_reads_nested_text_parts(monkeypatch) -> None:
 
     monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
     monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "http://localhost:8000/v1")
-    monkeypatch.setattr(ai_client.httpx, "post", fake_post)
+    monkeypatch.setattr(openai_compatible.httpx, "post", fake_post)
 
     response = ai_client.send_json_message(
         model="demo-model",
@@ -128,7 +129,7 @@ def test_send_json_message_auto_detects_anthropic_endpoint(monkeypatch) -> None:
     )
     monkeypatch.setattr(ai_client.settings, "ai_api_key", "test-key")
     monkeypatch.setattr(ai_client.settings, "ai_timeout_seconds", 30.0)
-    monkeypatch.setattr(ai_client.httpx, "post", fake_post)
+    monkeypatch.setattr(anthropic.httpx, "post", fake_post)
 
     response = ai_client.send_json_message(
         model="claude-sonnet-demo",

@@ -57,9 +57,9 @@ If you use a custom proxy with a nonstandard URL, set `AI_PROVIDER=openai` or `A
 
 ## Model Guidance
 
-- `Qwen3-4B` is text-only, so it is not suitable for `/api/v1/analyze-frame`
-- `Qwen/Qwen2.5-VL-3B-Instruct` is a good lightweight vision-capable option
-- `Qwen/Qwen2.5-Omni-7B` is a stronger multimodal choice if you want one model for both image analysis and debrief generation
+- `chaitnya26/Qwen2.5-Omni-3B-Fork` is the local single-model example used in this repo for both `/api/v1/analyze-frame` and `/api/v1/debrief`
+- `Qwen/Qwen2.5-VL-3B-Instruct` is still a good lighter vision-capable alternative
+- text-only models will not work for `/api/v1/analyze-frame`
 - Anthropic-backed analysis also requires a vision-capable model on the provider side
 
 ## Quick Start
@@ -69,7 +69,7 @@ If you use a custom proxy with a nonstandard URL, set `AI_PROVIDER=openai` or `A
 Example local OpenAI-compatible server:
 
 ```bash
-vllm serve Qwen/Qwen2.5-Omni-7B --api-key EMPTY
+vllm serve chaitnya26/Qwen2.5-Omni-3B-Fork --port 8000 --api-key EMPTY
 ```
 
 ### 2. Start the backend
@@ -80,10 +80,11 @@ python -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 8001
 ```
 
 Set `backend/.env` to point at your AI endpoint before starting the trainer.
+The examples in this repo use `http://localhost:8000/v1` for the model server and `http://localhost:8001` for the backend.
 
 ### 3. Start the frontend
 
@@ -103,12 +104,12 @@ Visit `http://localhost:3000`.
 Backend smoke checks:
 
 ```bash
-curl http://localhost:8000/api/v1/health
-curl http://localhost:8000/api/v1/procedures/simple-interrupted-suture
-curl -X POST http://localhost:8000/api/v1/analyze-frame \
+curl http://localhost:8001/api/v1/health
+curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
+curl -X POST http://localhost:8001/api/v1/analyze-frame \
   -H 'Content-Type: application/json' \
   -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ=="}'
-curl -X POST http://localhost:8000/api/v1/debrief \
+curl -X POST http://localhost:8001/api/v1/debrief \
   -H 'Content-Type: application/json' \
   -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","events":[]}'
 ```
