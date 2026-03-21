@@ -4,10 +4,16 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.core.config import settings
-from app.schemas.analyze import AnalysisDraft, AnalyzeFrameRequest, AnalyzeFrameResponse
+from app.schemas.analyze import (
+    AnalysisDraft,
+    AnalyzeFrameRequest,
+    AnalyzeFrameResponse,
+    Issue,
+)
 from app.schemas.procedure import ProcedureDefinition, ProcedureStage
 from app.services.ai_client import AIResponseError, send_json_message
 from app.services.procedure_loader import load_procedure, load_stage
+from app.services import review_queue_service, safety_service
 from app.services.scoring_service import (
     InvalidOverlayTargetError,
     compute_score_delta,
@@ -18,6 +24,23 @@ from app.services.scoring_service import (
 def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     procedure = load_procedure(payload.procedure_id)
     stage = load_stage(procedure, payload.stage_id)
+    safety_gate = safety_service.evaluate_safety_gate(
+        payload=payload,
+        procedure=procedure,
+        stage=stage,
+    )
+
+    if safety_gate.status != "cleared":
+        review_case = _create_review_case_for_blocked_analysis(
+            payload=payload,
+            stage=stage,
+            safety_gate=safety_gate,
+        )
+        return _build_blocked_analysis_response(
+            stage=stage,
+            safety_gate=safety_gate,
+            review_case_id=review_case.id if review_case else None,
+        )
 
     analysis_draft = request_stage_analysis(
         payload=payload,
@@ -38,8 +61,28 @@ def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     )
     coaching_message = analysis_draft.coaching_message.strip()
     next_action = analysis_draft.next_action.strip()
+    requires_human_review, human_review_reason, review_source = _determine_human_review(
+        draft=analysis_draft,
+    )
+    review_case = None
+    if requires_human_review:
+        review_case = review_queue_service.create_review_case(
+            source=review_source,
+            session_id=payload.session_id,
+            procedure_id=payload.procedure_id,
+            stage_id=payload.stage_id,
+            skill_level=payload.skill_level,
+            student_name=payload.student_name,
+            trigger_reason=human_review_reason,
+            analysis_blocked=False,
+            initial_step_status=analysis_draft.step_status,
+            confidence=analysis_draft.confidence,
+            coaching_message=coaching_message,
+            safety_gate=safety_gate,
+        )
 
     return AnalyzeFrameResponse(
+        analysis_mode="coaching",
         step_status=analysis_draft.step_status,
         confidence=analysis_draft.confidence,
         visible_observations=visible_observations,
@@ -54,6 +97,10 @@ def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
             step_status=analysis_draft.step_status,
             issues=analysis_draft.issues,
         ),
+        safety_gate=safety_gate,
+        requires_human_review=requires_human_review,
+        human_review_reason=human_review_reason if requires_human_review else None,
+        review_case_id=review_case.id if review_case else None,
     )
 
 
@@ -186,3 +233,106 @@ def _normalize_visible_observations(
             cleaned.append(fallback_line)
 
     return cleaned[:4]
+
+
+def _determine_human_review(
+    *,
+    draft: AnalysisDraft,
+) -> tuple[bool, str, str]:
+    if draft.step_status in {"unclear", "unsafe"}:
+        return (
+            True,
+            "The AI marked this attempt as unclear or unsafe, so a faculty reviewer should validate the coaching outcome.",
+            "quality_flag",
+        )
+
+    if draft.confidence < settings.human_review_confidence_threshold:
+        return (
+            True,
+            "The model confidence fell below the human-review threshold, so the attempt was escalated for supervised validation.",
+            "confidence_flag",
+        )
+
+    if any(issue.severity == "high" for issue in draft.issues):
+        return (
+            True,
+            "A high-severity issue was detected, so the attempt was escalated for faculty review.",
+            "quality_flag",
+        )
+
+    return False, "", "quality_flag"
+
+
+def _create_review_case_for_blocked_analysis(
+    *,
+    payload: AnalyzeFrameRequest,
+    stage: ProcedureStage,
+    safety_gate,
+):
+    if not payload.session_id:
+        return None
+
+    if (
+        safety_gate.status == "blocked"
+        and "confirmation" in safety_gate.reason.lower()
+    ):
+        return None
+
+    return review_queue_service.create_review_case(
+        source="safety_gate",
+        session_id=payload.session_id,
+        procedure_id=payload.procedure_id,
+        stage_id=stage.id,
+        skill_level=payload.skill_level,
+        student_name=payload.student_name,
+        trigger_reason=safety_gate.reason,
+        analysis_blocked=True,
+        initial_step_status="unsafe",
+        confidence=safety_gate.confidence,
+        coaching_message=safety_gate.refusal_message,
+        safety_gate=safety_gate,
+    )
+
+
+def _build_blocked_analysis_response(
+    *,
+    stage: ProcedureStage,
+    safety_gate,
+    review_case_id: str | None,
+) -> AnalyzeFrameResponse:
+    refusal_message = (
+        safety_gate.refusal_message
+        or "Analysis was blocked because the image did not clear the simulation-only safety gate."
+    )
+    next_action = (
+        "Use a clearly simulated setup on an orange, banana, or foam pad, then retry once the image is safe to review."
+    )
+    return AnalyzeFrameResponse(
+        analysis_mode="blocked",
+        step_status="unsafe",
+        confidence=safety_gate.confidence,
+        visible_observations=[
+            f"{stage.title} analysis was paused by the safety gate.",
+            safety_gate.reason,
+        ],
+        issues=[
+            Issue(
+                code="simulation_only_gate",
+                severity="high",
+                message=safety_gate.reason,
+            )
+        ],
+        coaching_message=refusal_message,
+        next_action=next_action,
+        overlay_target_ids=[],
+        score_delta=0,
+        safety_gate=safety_gate,
+        requires_human_review=safety_gate.status == "needs_human_review"
+        or review_case_id is not None,
+        human_review_reason=(
+            "A human reviewer has been asked to inspect this blocked session."
+            if review_case_id
+            else safety_gate.reason
+        ),
+        review_case_id=review_case_id,
+    )

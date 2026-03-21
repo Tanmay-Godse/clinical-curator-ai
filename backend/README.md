@@ -6,10 +6,12 @@ This package contains the FastAPI service for the AI Clinical Skills Coach backe
 
 - serve procedure metadata to the frontend
 - validate analyze and debrief request payloads
+- run a simulation-only safety gate before coaching
 - route AI requests to either an OpenAI-compatible or Anthropic-style endpoint
 - validate and normalize AI responses
 - compute `score_delta` deterministically in Python
 - return stable fallback debrief content when the debrief AI path is unavailable
+- persist a lightweight human-review queue for flagged sessions
 
 ## Setup
 
@@ -36,6 +38,8 @@ AI_DEBRIEF_MODEL=Qwen/Qwen2.5-Omni-7B
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
+AI_SAFETY_MAX_TOKENS=600
+HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
 ANTHROPIC_VERSION=2023-06-01
 ```
 
@@ -51,6 +55,8 @@ What each setting does:
 - `AI_TIMEOUT_SECONDS`: outbound request timeout
 - `AI_ANALYSIS_MAX_TOKENS`: max tokens for analysis responses
 - `AI_DEBRIEF_MAX_TOKENS`: max tokens for debrief responses
+- `AI_SAFETY_MAX_TOKENS`: max tokens for safety-gate classification
+- `HUMAN_REVIEW_CONFIDENCE_THRESHOLD`: confidence cutoff for automatic human escalation
 - `ANTHROPIC_VERSION`: only used for Anthropic-style requests
 
 Backward compatibility:
@@ -103,12 +109,15 @@ ANTHROPIC_VERSION=2023-06-01
 - `GET /api/v1/procedures/{id}`
 - `POST /api/v1/analyze-frame`
 - `POST /api/v1/debrief`
+- `GET /api/v1/review-cases`
+- `POST /api/v1/review-cases/{case_id}/resolve`
 
 ## Route Behavior
 
 `POST /api/v1/analyze-frame`:
 
 - returns `200` with validated analysis output
+- may return `analysis_mode="blocked"` when the safety gate refuses the image
 - returns `404` for unknown procedures or stages
 - returns `503` when live AI analysis is not configured
 - returns `502` when the upstream AI request fails or returns invalid JSON

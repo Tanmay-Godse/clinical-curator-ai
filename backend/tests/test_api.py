@@ -2,10 +2,12 @@ from fastapi.testclient import TestClient
 
 from app.api.routes import analyze as analyze_route
 from app.api.routes import debrief as debrief_route
+from app.api.routes import review_cases as review_cases_route
 from app.main import app
-from app.schemas.analyze import AnalyzeFrameResponse, Issue
+from app.schemas.analyze import AnalyzeFrameResponse, Issue, SafetyGateResult
 from app.schemas.debrief import DebriefResponse, QuizQuestion
 from app.services.ai_client import AIConfigurationError
+from app.services import review_queue_service
 
 client = TestClient(app)
 
@@ -30,6 +32,7 @@ def test_procedure_route_returns_expected_shape() -> None:
 def test_analyze_route_returns_ai_response(monkeypatch) -> None:
     def fake_analyze_frame_payload(_payload):
         return AnalyzeFrameResponse(
+            analysis_mode="coaching",
             step_status="retry",
             confidence=0.88,
             visible_observations=[
@@ -47,6 +50,15 @@ def test_analyze_route_returns_ai_response(monkeypatch) -> None:
             next_action="Reframe the entry and capture one more attempt.",
             overlay_target_ids=["entry_point", "needle_angle"],
             score_delta=13,
+            safety_gate=SafetyGateResult(
+                status="cleared",
+                confidence=0.98,
+                reason="The image cleared the simulation-only safety screen.",
+                refusal_message=None,
+            ),
+            requires_human_review=False,
+            human_review_reason=None,
+            review_case_id=None,
         )
 
     monkeypatch.setattr(
@@ -62,6 +74,7 @@ def test_analyze_route_returns_ai_response(monkeypatch) -> None:
             "stage_id": "needle_entry",
             "skill_level": "beginner",
             "image_base64": "ZmFrZQ==",
+            "simulation_confirmation": True,
         },
     )
 
@@ -169,8 +182,58 @@ def test_analyze_route_returns_503_for_missing_ai_configuration(monkeypatch) -> 
             "stage_id": "needle_entry",
             "skill_level": "beginner",
             "image_base64": "ZmFrZQ==",
+            "simulation_confirmation": True,
         },
     )
 
     assert response.status_code == 503
     assert response.json() == {"detail": "AI_API_BASE_URL is not configured."}
+
+
+def test_review_cases_route_lists_and_resolves_cases(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        review_queue_service,
+        "REVIEW_CASES_PATH",
+        tmp_path / "review_cases.json",
+    )
+
+    created_case = review_queue_service.create_review_case(
+        source="quality_flag",
+        session_id="session-123",
+        procedure_id="simple-interrupted-suture",
+        stage_id="needle_entry",
+        skill_level="beginner",
+        student_name="Student User",
+        trigger_reason="Low confidence triggered human review.",
+        analysis_blocked=False,
+        initial_step_status="retry",
+        confidence=0.51,
+        coaching_message="Retry with a better angle.",
+        safety_gate=SafetyGateResult(
+            status="cleared",
+            confidence=0.92,
+            reason="The safety gate cleared the image.",
+            refusal_message=None,
+        ),
+    )
+
+    response = client.get("/api/v1/review-cases?status=pending")
+    assert response.status_code == 200
+    data = response.json()
+    assert len(data) == 1
+    assert data[0]["id"] == created_case.id
+
+    resolve_response = client.post(
+        f"/api/v1/review-cases/{created_case.id}/resolve",
+        json={
+            "reviewer_name": "Faculty Reviewer",
+            "reviewer_notes": "The AI was directionally correct but too uncertain.",
+            "corrected_step_status": "retry",
+            "rubric_feedback": "Tighten the wording around shallow entry angle.",
+        },
+    )
+
+    assert resolve_response.status_code == 200
+    resolved = resolve_response.json()
+    assert resolved["status"] == "resolved"
+    assert resolved["reviewer_name"] == "Faculty Reviewer"

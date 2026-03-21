@@ -2,93 +2,151 @@ import Link from "next/link";
 
 export default function Home() {
   return (
-    <main className="page-shell">
+    <main className="page-shell landing-shell">
       <div className="page-inner">
         <header className="page-header">
           <div className="brand">
             <span className="brand-mark">AC</span>
             <span>AI Clinical Skills Coach</span>
           </div>
-          <span className="pill">Simulation-only training product</span>
+          <span className="pill">Simulation bay: suturing edition</span>
         </header>
 
         <section className="hero">
           <div className="hero-grid">
             <article className="hero-card hero-copy">
-              <span className="pill">Phase 3 demo-ready trainer</span>
-              <h1>Practice a simple interrupted suture with calm, structured coaching.</h1>
+              <span className="eyebrow">Studio mode</span>
+              <h1>Turn a kitchen-counter practice setup into a cinematic training bay.</h1>
               <p>
-                This version turns a webcam into a stable simulation-first trainer for
-                medical students practicing on an orange, banana, or foam pad. It stays
-                tightly scoped to one procedure, one polished camera workflow, and one
-                study-friendly review page.
+                A webcam, a foam pad or orange, and one sharply scoped procedure become a
+                guided suturing loop with overlays, AI feedback, and a review deck built
+                for repetition instead of clutter.
               </p>
               <div className="button-row">
                 <Link
                   className="button-primary"
-                  href="/train/simple-interrupted-suture"
+                  href="/login?role=student&next=/train/simple-interrupted-suture"
                 >
-                  Start Training
+                  Launch Suturing Bay
+                </Link>
+                <Link
+                  className="button-secondary"
+                  href="/login?role=admin&next=/admin/reviews"
+                >
+                  Open Admin Queue
                 </Link>
                 <a className="button-secondary" href="#how-it-works">
-                  See the Flow
+                  Explore the System
                 </a>
               </div>
-              <p className="fine-print">
-                Built for simulated deliberate practice only. This product does not replace
-                instructors, real-patient training, or clinical judgment.
-              </p>
+              <div className="signal-grid">
+                <article className="signal-card">
+                  <span>Focus</span>
+                  <strong>1 procedure</strong>
+                </article>
+                <article className="signal-card">
+                  <span>Input</span>
+                  <strong>Camera + overlays</strong>
+                </article>
+                <article className="signal-card">
+                  <span>Output</span>
+                  <strong>AI debrief + quiz</strong>
+                </article>
+              </div>
             </article>
 
             <aside className="hero-card hero-aside">
-              <div className="stat-card">
-                <strong>Hero workflow</strong>
+              <div className="hero-diagram">
+                <div className="diagram-chip">capture</div>
+                <div className="diagram-chip">calibrate</div>
+                <div className="diagram-chip">analyze</div>
+                <div className="diagram-chip">retry</div>
+                <div className="diagram-chip">review</div>
+              </div>
+              <div className="stat-card accent-card">
+                <strong>Built like a focused control room</strong>
                 <p className="panel-copy">
-                  Frame the practice surface, capture a step, receive model coaching,
-                  retry once, and finish with a stored review summary.
+                  The interface treats each practice attempt like a logged simulation
+                  event, not a generic chat prompt. Camera framing, stage progress, and
+                  review all stay visible at once.
                 </p>
               </div>
-              <div className="stat-card">
-                <strong>Technical boundary</strong>
-                <p className="panel-copy">
-                  Next.js owns camera and overlays. FastAPI owns the procedure contract,
-                  scoring, and AI-backed analysis and debrief generation.
-                </p>
-              </div>
-              <div className="stat-card">
-                <strong>Phase 3 reliability</strong>
-                <p className="panel-copy">
-                  Session review is cached locally, debrief generation has a fallback path,
-                  and the app is tuned for repeatable demos instead of new feature churn.
-                </p>
+              <div className="stat-rail">
+                <div className="stat-card compact-card">
+                  <span className="metric-kicker">Frontend</span>
+                  <strong>Next.js</strong>
+                  <p className="panel-copy">Camera, calibration, overlays, review cache.</p>
+                </div>
+                <div className="stat-card compact-card">
+                  <span className="metric-kicker">Backend</span>
+                  <strong>FastAPI</strong>
+                  <p className="panel-copy">Rubrics, scoring, analysis, debrief generation.</p>
+                </div>
               </div>
             </aside>
           </div>
 
+          <section className="marquee-band" aria-label="Product framing">
+            <span>simulation-only</span>
+            <span>simple interrupted suture</span>
+            <span>camera-led coaching</span>
+            <span>overlay-targeted guidance</span>
+            <span>session memory</span>
+            <span>review-first learning</span>
+          </section>
+
           <div className="feature-grid" id="how-it-works">
             <article className="feature-card">
-              <h2>One believable procedure</h2>
+              <span className="feature-index">01</span>
+              <h2>One believable procedure, treated with depth</h2>
               <p>
-                The app stays focused on simple interrupted suturing so the UI, scoring, and
-                coaching all feel coherent instead of spread thin.
+                Every screen is tuned around simple interrupted suturing so stage labels,
+                scoring, targets, and review language all stay specific and teachable.
               </p>
             </article>
             <article className="feature-card">
-              <h2>Live mock coaching loop</h2>
+              <span className="feature-index">02</span>
+              <h2>A trainer view that feels instrumented</h2>
               <p>
-                The frontend calls the live FastAPI service for frame analysis, deterministic
-                scoring, and session review generation.
+                The camera sits at the center, while calibration, stage controls, and live
+                coaching readouts frame the attempt like a deliberate practice console.
               </p>
             </article>
             <article className="feature-card">
-              <h2>Review that feels educational</h2>
+              <span className="feature-index">03</span>
+              <h2>Review that reads like a study artifact</h2>
               <p>
-                Each attempt is stored locally so the review page can show progress, stage
-                outcomes, and a study-ready debrief without regenerating the same summary
-                on every visit.
+                The session timeline, debrief, and quiz are designed to be revisited after
+                practice, not just glanced at once before closing the tab.
               </p>
             </article>
           </div>
+
+          <section className="landing-bottom-grid">
+            <article className="feature-card atmosphere-card">
+              <span className="feature-index">Practice mood</span>
+              <h2>Calm, technical, and visibly intentional</h2>
+              <p>
+                Instead of default dashboard styling, the interface leans into warm lab
+                lighting, technical labels, and strong spatial cues so the app feels like
+                a training environment with purpose.
+              </p>
+            </article>
+            <article className="feature-card atmosphere-card">
+              <span className="feature-index">Safety frame</span>
+              <h2>Always simulation-only</h2>
+              <p>
+                The product is explicitly designed for practice on oranges, bananas, or
+                foam pads. It supports deliberate repetition and instruction, not real
+                patient care or clinical decision-making.
+              </p>
+            </article>
+          </section>
+
+          <p className="fine-print landing-note">
+            Built for simulated deliberate practice only. This product does not replace
+            instructors, real-patient training, or clinical judgment.
+          </p>
         </section>
       </div>
     </main>

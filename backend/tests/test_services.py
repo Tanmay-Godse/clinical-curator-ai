@@ -1,12 +1,28 @@
 import pytest
 
-from app.schemas.analyze import AnalyzeFrameRequest
+from app.schemas.analyze import AnalyzeFrameRequest, SafetyGateResult
 from app.schemas.debrief import DebriefRequest, DebriefEvent
+from app.schemas.review import ResolveReviewCaseRequest
 from app.services import analysis_service, debrief_service
 from app.services.ai_client import AIRequestError, AIResponseError
+from app.services import review_queue_service, safety_service
+
+
+def make_cleared_safety_gate() -> SafetyGateResult:
+    return SafetyGateResult(
+        status="cleared",
+        confidence=0.97,
+        reason="The image cleared the simulation-only safety screen.",
+        refusal_message=None,
+    )
 
 
 def test_analysis_service_rejects_unknown_overlay_targets(monkeypatch) -> None:
+    monkeypatch.setattr(
+        safety_service,
+        "evaluate_safety_gate",
+        lambda **_: make_cleared_safety_gate(),
+    )
     monkeypatch.setattr(
         analysis_service,
         "send_json_message",
@@ -35,6 +51,7 @@ def test_analysis_service_rejects_unknown_overlay_targets(monkeypatch) -> None:
         stage_id="needle_entry",
         skill_level="beginner",
         image_base64="ZmFrZQ==",
+        simulation_confirmation=True,
     )
 
     with pytest.raises(AIResponseError, match="not allowed for stage 'needle_entry'"):
@@ -59,6 +76,11 @@ def test_debrief_service_returns_local_fallback_for_empty_session() -> None:
 
 def test_analysis_service_backfills_trimmed_response_fields(monkeypatch) -> None:
     monkeypatch.setattr(
+        safety_service,
+        "evaluate_safety_gate",
+        lambda **_: make_cleared_safety_gate(),
+    )
+    monkeypatch.setattr(
         analysis_service,
         "send_json_message",
         lambda **_: {
@@ -80,6 +102,7 @@ def test_analysis_service_backfills_trimmed_response_fields(monkeypatch) -> None
         stage_id="needle_entry",
         skill_level="beginner",
         image_base64="ZmFrZQ==",
+        simulation_confirmation=True,
     )
 
     response = analysis_service.analyze_frame_payload(payload)
@@ -180,3 +203,66 @@ def test_debrief_service_backfills_quiz_when_ai_payload_is_partial(monkeypatch) 
 
     assert response.strengths[0] == "You kept the field centered."
     assert len(response.quiz) == 3
+
+
+def test_safety_service_blocks_without_simulation_confirmation() -> None:
+    payload = AnalyzeFrameRequest(
+        procedure_id="simple-interrupted-suture",
+        stage_id="needle_entry",
+        skill_level="beginner",
+        image_base64="ZmFrZQ==",
+        simulation_confirmation=False,
+    )
+
+    procedure = analysis_service.load_procedure("simple-interrupted-suture")
+    stage = analysis_service.load_stage(procedure, "needle_entry")
+    result = safety_service.evaluate_safety_gate(
+        payload=payload,
+        procedure=procedure,
+        stage=stage,
+    )
+
+    assert result.status == "blocked"
+    assert "confirmation" in result.reason.lower()
+
+
+def test_review_queue_service_resolves_case(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(
+        review_queue_service,
+        "REVIEW_CASES_PATH",
+        tmp_path / "review_cases.json",
+    )
+
+    created_case = review_queue_service.create_review_case(
+        source="safety_gate",
+        session_id="session-123",
+        procedure_id="simple-interrupted-suture",
+        stage_id="needle_entry",
+        skill_level="beginner",
+        student_name="Student User",
+        trigger_reason="The scene may depict a live clinical setting.",
+        analysis_blocked=True,
+        initial_step_status="unsafe",
+        confidence=0.94,
+        coaching_message="Analysis was blocked.",
+        safety_gate=SafetyGateResult(
+          status="blocked",
+          confidence=0.94,
+          reason="The scene may depict a live clinical setting.",
+          refusal_message="Analysis was blocked.",
+        ),
+    )
+
+    resolved_case = review_queue_service.resolve_review_case(
+        created_case.id,
+        payload=ResolveReviewCaseRequest(
+            reviewer_name="Faculty Reviewer",
+            reviewer_notes="Good block. Keep the safety gate strict.",
+            corrected_step_status="unsafe",
+            corrected_coaching_message="Do not analyze real-patient imagery.",
+            rubric_feedback="Preserve this refusal pattern.",
+        ),
+    )
+
+    assert resolved_case.status == "resolved"
+    assert resolved_case.reviewer_name == "Faculty Reviewer"

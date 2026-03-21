@@ -5,11 +5,13 @@ This package contains the Next.js frontend for the AI Clinical Skills Coach trai
 ## Responsibilities
 
 - landing page and entry flow
+- student and admin login screens
 - trainer page with camera access and frame capture
 - calibration UI and overlay rendering
 - stage-by-stage feedback display
 - browser-local session persistence
 - review page hydration and debrief caching
+- admin review queue for human validation
 
 ## Setup
 
@@ -38,6 +40,8 @@ This should point at the FastAPI backend, not directly at your model server.
 ## Routes
 
 - `/`: landing page and project framing
+- `/login`: local role login for students and admin reviewers
+- `/admin/reviews`: human-in-the-loop validation queue
 - `/train/[procedure]`: live trainer flow with capture, analyze, stage progression, and review handoff
 - `/review/[sessionId]`: session summary, cached or fresh debrief, and per-attempt history
 
@@ -48,6 +52,7 @@ The frontend stores training history in browser `localStorage`.
 What is stored:
 
 - active session id per procedure
+- local auth user for the selected role
 - calibration state
 - per-stage attempt history
 - score deltas and coaching text
@@ -65,6 +70,8 @@ How debrief caching works:
 - the frontend only talks to the FastAPI backend
 - the browser never sends Anthropic or OpenAI-compatible API keys directly
 - analyze requests are only sent on `Check My Step`
+- the trainer sends `simulation_confirmation` before analysis
+- blocked or low-confidence responses can surface `review_case_id` values from the backend queue
 - the review page debrief request is driven from stored session events
 
 ## Common Issues

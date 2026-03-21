@@ -68,6 +68,28 @@ export function FeedbackCard({
 
       {response ? (
         <div className="feedback-card">
+          {response.analysis_mode === "blocked" ? (
+            <div className="feedback-block">
+              <div className="feedback-header">
+                <strong>Safety gate blocked analysis</strong>
+                <span className="status-badge status-unsafe">
+                  {response.safety_gate.status}
+                </span>
+              </div>
+              <p className="feedback-copy" style={{ marginTop: 12 }}>
+                {response.coaching_message}
+              </p>
+              <p className="feedback-copy" style={{ marginTop: 12 }}>
+                Reason: {response.safety_gate.reason}
+              </p>
+              {response.review_case_id ? (
+                <p className="feedback-copy" style={{ marginTop: 12 }}>
+                  Escalated for human review as {response.review_case_id}.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="feedback-block">
             <div className="feedback-header">
               <strong>Current result</strong>
@@ -129,6 +151,23 @@ export function FeedbackCard({
               {response.next_action}
             </p>
           </div>
+
+          {response.requires_human_review ? (
+            <div className="feedback-block">
+              <div className="feedback-header">
+                <strong>Human review requested</strong>
+                <span className="pill">Faculty queue</span>
+              </div>
+              <p className="feedback-copy" style={{ marginTop: 12 }}>
+                {response.human_review_reason ?? "A reviewer has been asked to validate this attempt."}
+              </p>
+              {response.review_case_id ? (
+                <p className="feedback-copy" style={{ marginTop: 12 }}>
+                  Review case id: {response.review_case_id}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       ) : null}
     </article>

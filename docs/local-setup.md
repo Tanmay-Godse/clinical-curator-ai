@@ -110,6 +110,8 @@ AI_DEBRIEF_MODEL=Qwen/Qwen2.5-Omni-7B
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
+AI_SAFETY_MAX_TOKENS=600
+HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
 ```
 
 #### Anthropic-Style
@@ -222,11 +224,12 @@ This should return:
 ```bash
 curl -X POST http://localhost:8000/api/v1/analyze-frame \
   -H 'Content-Type: application/json' \
-  -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ=="}'
+  -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ==","simulation_confirmation":true}'
 ```
 
 With a valid AI endpoint and a vision-capable model, this should return a response containing:
 
+- `analysis_mode`
 - `step_status`
 - `confidence`
 - `visible_observations`
@@ -235,6 +238,9 @@ With a valid AI endpoint and a vision-capable model, this should return a respon
 - `next_action`
 - `overlay_target_ids`
 - `score_delta`
+- `safety_gate`
+- `requires_human_review`
+- `review_case_id`
 
 Without `AI_API_BASE_URL`, this route returns `503`.
 
@@ -259,16 +265,29 @@ This route always returns a structured debrief shape:
 Once both servers are running:
 
 1. Open `http://localhost:3000`
-2. Click `Start Training`
+2. Sign in as a student from `/login`
 3. Allow camera access when prompted
 4. Place an orange, banana, or foam pad in view
 5. Choose a calibration mode
-6. Capture a frame with `Check My Step`
-7. Review the returned overlays, observations, and coaching
-8. Retry or advance through the stages
-9. Open the review page at the end of the session
+6. Confirm the simulation-only checkbox before analysis
+7. Capture a frame with `Check My Step`
+8. Review the returned overlays, observations, coaching, or safety refusal
+9. Retry or advance through the stages
+10. Open the review page at the end of the session
 
-## 9. Quality Checks
+## 9. Human Review Queue
+
+Admin reviewers can open `http://localhost:3000/admin/reviews` after signing in from `/login?role=admin`.
+
+The queue collects:
+
+- safety-gate blocked sessions
+- low-confidence attempts
+- unclear or unsafe outcomes
+
+Each case can be resolved with reviewer notes, a corrected status, and rubric feedback.
+
+## 10. Quality Checks
 
 ### Frontend
 
@@ -287,7 +306,7 @@ source .venv/bin/activate
 pytest
 ```
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 ### The landing page loads but analysis returns `503`
 
@@ -346,10 +365,10 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 
 Install a current Node.js release, then rerun `npm install` in `frontend/`.
 
-## 11. Current Limitations
+## 12. Current Limitations
 
 - one supported procedure
 - browser-local persistence only
-- no auth or multi-user storage
+- login is local-only and intended for demo use
 - simulation-only educational framing
 - live analysis quality depends on image quality and model choice

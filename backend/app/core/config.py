@@ -67,6 +67,18 @@ class Settings(BaseSettings):
             "ANTHROPIC_DEBRIEF_MAX_TOKENS",
         ),
     )
+    ai_safety_max_tokens: int = Field(
+        default=600,
+        validation_alias=AliasChoices(
+            "AI_SAFETY_MAX_TOKENS",
+            "OPENAI_SAFETY_MAX_TOKENS",
+            "ANTHROPIC_SAFETY_MAX_TOKENS",
+        ),
+    )
+    human_review_confidence_threshold: float = Field(
+        default=0.78,
+        validation_alias=AliasChoices("HUMAN_REVIEW_CONFIDENCE_THRESHOLD"),
+    )
     anthropic_version: str = Field(
         default="2023-06-01",
         validation_alias=AliasChoices("ANTHROPIC_VERSION"),

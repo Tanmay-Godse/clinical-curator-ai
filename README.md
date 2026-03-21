@@ -9,6 +9,9 @@ AI Clinical Skills Coach is a simulation-only trainer for practicing a simple in
 - Browser-local session storage
 - Deterministic scoring in Python
 - AI-backed frame analysis and session debriefing
+- Human-in-the-loop validation queue for flagged sessions
+- Hard simulation-only safety gate before analysis
+- Student and admin login entry points
 - Auto-detected support for OpenAI-compatible and Anthropic-style AI endpoints
 - Fallback review generation when the debrief AI path is unavailable
 
@@ -127,6 +130,8 @@ pytest
 
 - The frontend stores session records and cached debriefs in browser `localStorage`
 - The review page still renders local session history even if fresh debrief generation fails
+- The trainer requires simulation-only confirmation before analysis
+- Flagged sessions can be escalated into the admin review queue for human validation
 - `POST /api/v1/analyze-frame` returns `503` when live AI analysis is not configured
 - `POST /api/v1/analyze-frame` returns `502` when the upstream AI call fails or returns invalid JSON
 - `POST /api/v1/debrief` falls back to a deterministic study summary when the AI path is unavailable or partial
@@ -135,6 +140,7 @@ pytest
 
 - Simulation-only; not for real clinical care or diagnosis
 - One procedure only in the current build
-- No auth and no database-backed persistence
+- Login is browser-local and demo-friendly, not production auth
+- No database-backed persistence
 - AI output quality still depends on the model and image quality
 - Review history is tied to the browser profile that created the session

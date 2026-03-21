@@ -1,6 +1,9 @@
 export type StepStatus = "pass" | "retry" | "unclear" | "unsafe";
 export type SkillLevel = "beginner" | "intermediate";
 export type CalibrationMode = "corners" | "guide";
+export type UserRole = "student" | "admin";
+export type SafetyGateStatus = "cleared" | "blocked" | "needs_human_review";
+export type ReviewCaseStatus = "pending" | "resolved";
 
 export type Point = {
   x: number;
@@ -54,9 +57,20 @@ export type AnalyzeFrameRequest = {
   skill_level: SkillLevel;
   image_base64: string;
   student_question?: string;
+  simulation_confirmation: boolean;
+  session_id?: string;
+  student_name?: string;
+};
+
+export type SafetyGateResult = {
+  status: SafetyGateStatus;
+  confidence: number;
+  reason: string;
+  refusal_message?: string | null;
 };
 
 export type AnalyzeFrameResponse = {
+  analysis_mode: "coaching" | "blocked";
   step_status: StepStatus;
   confidence: number;
   visible_observations: string[];
@@ -65,12 +79,17 @@ export type AnalyzeFrameResponse = {
   next_action: string;
   overlay_target_ids: string[];
   score_delta: number;
+  safety_gate: SafetyGateResult;
+  requires_human_review: boolean;
+  human_review_reason?: string | null;
+  review_case_id?: string | null;
 };
 
 export type SessionEvent = {
   stageId: string;
   attempt: number;
   stepStatus: StepStatus;
+  analysisMode?: "coaching" | "blocked";
   issues: Issue[];
   scoreDelta: number;
   coachingMessage: string;
@@ -78,6 +97,10 @@ export type SessionEvent = {
   visibleObservations?: string[];
   nextAction?: string;
   confidence?: number;
+  safetyGate?: SafetyGateResult;
+  requiresHumanReview?: boolean;
+  humanReviewReason?: string;
+  reviewCaseId?: string;
   createdAt: string;
 };
 
@@ -112,6 +135,45 @@ export type DebriefResponse = {
   improvement_areas: string[];
   practice_plan: string[];
   quiz: QuizQuestion[];
+};
+
+export type AuthUser = {
+  id: string;
+  name: string;
+  role: UserRole;
+  createdAt: string;
+};
+
+export type ReviewCase = {
+  id: string;
+  status: ReviewCaseStatus;
+  source: "safety_gate" | "confidence_flag" | "quality_flag";
+  session_id?: string | null;
+  procedure_id: string;
+  stage_id: string;
+  skill_level: SkillLevel;
+  student_name?: string | null;
+  created_at: string;
+  trigger_reason: string;
+  analysis_blocked: boolean;
+  initial_step_status?: StepStatus | null;
+  confidence?: number | null;
+  coaching_message?: string | null;
+  safety_gate: SafetyGateResult;
+  reviewer_name?: string | null;
+  reviewer_notes?: string | null;
+  corrected_step_status?: StepStatus | null;
+  corrected_coaching_message?: string | null;
+  rubric_feedback?: string | null;
+  resolved_at?: string | null;
+};
+
+export type ResolveReviewCaseRequest = {
+  reviewer_name: string;
+  reviewer_notes: string;
+  corrected_step_status?: StepStatus;
+  corrected_coaching_message?: string;
+  rubric_feedback?: string;
 };
 
 export type StoredDebrief = {

@@ -12,12 +12,15 @@ import { ProcedureStepper } from "@/components/ProcedureStepper";
 import { analyzeFrame, getProcedure } from "@/lib/api";
 import { createDefaultCalibration } from "@/lib/geometry";
 import {
+  clearAuthUser,
+  getAuthUser,
   getOrCreateActiveSession,
   saveSession,
   startFreshSession,
 } from "@/lib/storage";
 import type {
   AnalyzeFrameResponse,
+  AuthUser,
   Calibration,
   CalibrationMode,
   ProcedureDefinition,
@@ -66,6 +69,8 @@ export default function TrainProcedurePage() {
     typeof procedureParam === "string" ? procedureParam : procedureParam?.[0];
 
   const cameraRef = useRef<CameraFeedHandle>(null);
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [procedure, setProcedure] = useState<ProcedureDefinition | null>(null);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [currentStageId, setCurrentStageId] = useState("");
@@ -84,9 +89,29 @@ export default function TrainProcedurePage() {
   const [feedbackStageId, setFeedbackStageId] = useState<string | null>(null);
   const [frozenFrameUrl, setFrozenFrameUrl] = useState<string | null>(null);
   const [studentQuestion, setStudentQuestion] = useState("");
+  const [simulationConfirmed, setSimulationConfirmed] = useState(false);
+
+  useEffect(() => {
+    const nextUser = getAuthUser();
+
+    if (!nextUser) {
+      const nextPath = procedureId
+        ? `/train/${procedureId}`
+        : "/train/simple-interrupted-suture";
+      router.replace(`/login?role=student&next=${encodeURIComponent(nextPath)}`);
+      return;
+    }
+
+    setAuthUser(nextUser);
+    setIsAuthLoading(false);
+  }, [procedureId, router]);
 
   useEffect(() => {
     const activeProcedureId = procedureId;
+
+    if (!authUser) {
+      return;
+    }
 
     if (!activeProcedureId) {
       setProcedureError("No procedure id was provided in the route.");
@@ -135,7 +160,7 @@ export default function TrainProcedurePage() {
     return () => {
       cancelled = true;
     };
-  }, [procedureId]);
+  }, [authUser, procedureId]);
 
   const currentStage = useMemo(
     () => procedure?.stages.find((stage) => stage.id === currentStageId) ?? null,
@@ -213,11 +238,19 @@ export default function TrainProcedurePage() {
     setFeedbackStageId(null);
     setFrozenFrameUrl(null);
     setStudentQuestion("");
+    setSimulationConfirmed(false);
     setAnalyzeError(null);
   }
 
   async function handleAnalyzeStep() {
-    if (!procedure || !currentStage || !session) {
+    if (!procedure || !currentStage || !session || !authUser) {
+      return;
+    }
+
+    if (!simulationConfirmed) {
+      setAnalyzeError(
+        "Confirm that this is a simulation-only practice image before running analysis.",
+      );
       return;
     }
 
@@ -241,6 +274,9 @@ export default function TrainProcedurePage() {
         skill_level: skillLevel,
         image_base64: capturedFrame.base64,
         student_question: studentQuestion.trim() || undefined,
+        simulation_confirmation: simulationConfirmed,
+        session_id: session.id,
+        student_name: authUser.name,
       });
 
       const attempt =
@@ -249,6 +285,7 @@ export default function TrainProcedurePage() {
         stageId: currentStage.id,
         attempt,
         stepStatus: response.step_status,
+        analysisMode: response.analysis_mode,
         issues: response.issues,
         scoreDelta: response.score_delta,
         coachingMessage: response.coaching_message,
@@ -256,6 +293,10 @@ export default function TrainProcedurePage() {
         visibleObservations: response.visible_observations,
         nextAction: response.next_action,
         confidence: response.confidence,
+        safetyGate: response.safety_gate,
+        requiresHumanReview: response.requires_human_review,
+        humanReviewReason: response.human_review_reason ?? undefined,
+        reviewCaseId: response.review_case_id ?? undefined,
         createdAt: new Date().toISOString(),
       };
 
@@ -279,6 +320,11 @@ export default function TrainProcedurePage() {
     }
   }
 
+  function handleLogout() {
+    clearAuthUser();
+    router.push("/login");
+  }
+
   function handleAdvance() {
     if (!procedure) {
       return;
@@ -300,7 +346,7 @@ export default function TrainProcedurePage() {
     router.push(`/review/${session.id}`);
   }
 
-  if (isLoadingProcedure) {
+  if (isAuthLoading || isLoadingProcedure) {
     return (
       <main className="page-shell">
         <div className="page-inner trainer-shell">
@@ -315,7 +361,7 @@ export default function TrainProcedurePage() {
     );
   }
 
-  if (!procedure || !session || !currentStage || procedureError) {
+  if (!authUser || !procedure || !session || !currentStage || procedureError) {
     return (
       <main className="page-shell">
         <div className="page-inner trainer-shell">
@@ -340,7 +386,7 @@ export default function TrainProcedurePage() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell trainer-page-shell">
       <div className="page-inner trainer-shell">
         <header className="page-header">
           <div className="brand">
@@ -349,14 +395,36 @@ export default function TrainProcedurePage() {
           </div>
           <div className="button-row">
             <span className="pill">Simulation-only</span>
+            <span className="pill">
+              {authUser.name} · {authUser.role}
+            </span>
             <Link className="button-ghost" href="/">
               Landing
             </Link>
+            {authUser.role === "admin" ? (
+              <Link className="button-ghost" href="/admin/reviews">
+                Admin Queue
+              </Link>
+            ) : null}
             <button className="button-secondary" onClick={handleStartFreshSession}>
               Start Fresh Session
             </button>
+            <button className="button-secondary" onClick={handleLogout}>
+              Logout
+            </button>
           </div>
         </header>
+
+        <section className="trainer-intro-strip">
+          <div>
+            <span className="eyebrow">Live practice console</span>
+            <h1 className="trainer-hero-title">Calibrate the field, capture the step, study the correction.</h1>
+          </div>
+          <p className="body-copy">
+            This workspace is designed like a simulation bay: the camera dominates the left
+            side, while stage logic, feedback, and review readiness stay visible on the right.
+          </p>
+        </section>
 
         <section className="summary-grid">
           <article className="metric-card">
@@ -467,10 +535,26 @@ export default function TrainProcedurePage() {
                 />
               </label>
 
+              <label className="safety-confirm-card" style={{ marginTop: 18 }}>
+                <input
+                  checked={simulationConfirmed}
+                  onChange={(event) => setSimulationConfirmed(event.target.checked)}
+                  type="checkbox"
+                />
+                <div>
+                  <strong>Simulation-only confirmation</strong>
+                  <p className="panel-copy">
+                    I confirm this image shows a practice surface such as an orange,
+                    banana, foam pad, or bench model, not a real patient or clinical
+                    scene.
+                  </p>
+                </div>
+              </label>
+
               <div className="trainer-control-row" style={{ marginTop: 18 }}>
                 <button
                   className="button-primary"
-                  disabled={!cameraReady || isAnalyzing}
+                  disabled={!cameraReady || isAnalyzing || !simulationConfirmed}
                   onClick={() => void handleAnalyzeStep()}
                 >
                   {isAnalyzing ? "Analyzing Step..." : "Check My Step"}
@@ -493,7 +577,7 @@ export default function TrainProcedurePage() {
 
               <p className="fine-print" style={{ marginTop: 16 }}>
                 If four-corner calibration feels unstable, switch to the centered guide. The
-                overlay renderer and AI coaching flow work in both modes.
+                overlay renderer, safety gate, and AI coaching flow work in both modes.
               </p>
             </article>
           </section>

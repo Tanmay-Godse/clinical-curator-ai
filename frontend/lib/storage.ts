@@ -1,7 +1,14 @@
 import { createDefaultCalibration } from "@/lib/geometry";
-import type { DebriefResponse, SessionRecord, SkillLevel } from "@/lib/types";
+import type {
+  AuthUser,
+  DebriefResponse,
+  SessionRecord,
+  SkillLevel,
+  UserRole,
+} from "@/lib/types";
 
 const SESSIONS_KEY = "ai-clinical-skills-coach:sessions";
+const AUTH_USER_KEY = "ai-clinical-skills-coach:auth-user";
 
 function activeSessionKey(procedureId: string) {
   return `ai-clinical-skills-coach:active:${procedureId}`;
@@ -39,6 +46,42 @@ export function saveSession(session: SessionRecord): SessionRecord {
 
 export function getSession(sessionId: string): SessionRecord | null {
   return readSessions()[sessionId] ?? null;
+}
+
+export function saveAuthUser(name: string, role: UserRole): AuthUser {
+  const user: AuthUser = {
+    id: crypto.randomUUID(),
+    name: name.trim() || (role === "admin" ? "Admin Reviewer" : "Student User"),
+    role,
+    createdAt: new Date().toISOString(),
+  };
+  window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  return user;
+}
+
+export function getAuthUser(): AuthUser | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const raw = window.localStorage.getItem(AUTH_USER_KEY);
+  if (!raw) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(raw) as AuthUser;
+  } catch {
+    return null;
+  }
+}
+
+export function clearAuthUser() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.localStorage.removeItem(AUTH_USER_KEY);
 }
 
 export function buildSessionReviewSignature(session: SessionRecord): string {

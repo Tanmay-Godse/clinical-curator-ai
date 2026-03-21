@@ -3,6 +3,7 @@
 import type {
   DebriefResponse,
   ProcedureDefinition,
+  ReviewCase,
   SessionEvent,
   SessionRecord,
 } from "@/lib/types";
@@ -13,6 +14,7 @@ type ReviewSummaryProps = {
   debrief: DebriefResponse | null;
   isDebriefLoading: boolean;
   debriefError: string | null;
+  reviewCases: ReviewCase[];
 };
 
 function toStageLabel(stageId: string, procedure: ProcedureDefinition | null) {
@@ -32,6 +34,7 @@ export function ReviewSummary({
   debrief,
   isDebriefLoading,
   debriefError,
+  reviewCases,
 }: ReviewSummaryProps) {
   const totalScore = session.events.reduce((sum, event) => sum + event.scoreDelta, 0);
   const latestFeedback = session.events.at(-1)?.coachingMessage ?? "No coaching recorded yet.";
@@ -179,6 +182,38 @@ export function ReviewSummary({
               </li>
             ))}
           </ul>
+        </article>
+
+        <article className="review-card" style={{ marginTop: 20 }}>
+          <header>
+            <strong>Human review status</strong>
+            <span className="pill">{reviewCases.length} flagged case(s)</span>
+          </header>
+          {reviewCases.length === 0 ? (
+            <p className="review-subtle">
+              No human-review cases were attached to this session.
+            </p>
+          ) : (
+            <ul className="timeline-list">
+              {reviewCases.map((caseItem) => (
+                <li className="timeline-item" key={caseItem.id}>
+                  <header>
+                    <strong>{toStageLabel(caseItem.stage_id, procedure)}</strong>
+                    <span className={`status-badge status-${caseItem.status === "resolved" ? "pass" : "retry"}`}>
+                      {caseItem.status}
+                    </span>
+                  </header>
+                  <p className="review-subtle">{caseItem.trigger_reason}</p>
+                  <p className="review-subtle">
+                    Safety gate: {caseItem.safety_gate.status}. Source: {caseItem.source}.
+                  </p>
+                  {caseItem.reviewer_notes ? (
+                    <p className="review-subtle">Reviewer note: {caseItem.reviewer_notes}</p>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          )}
         </article>
       </section>
     </section>

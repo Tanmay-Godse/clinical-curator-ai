@@ -75,12 +75,14 @@ Submits one captured trainer frame for stage analysis.
 The backend:
 
 - validates the request
+- applies a simulation-only safety gate before coaching
 - loads the procedure rubric and current stage
 - auto-detects whether the configured AI endpoint is OpenAI-compatible or Anthropic-style
 - prompts the configured model
 - validates the returned JSON
 - filters overlay targets against the current stage
 - computes `score_delta` in Python
+- escalates flagged sessions into the human review queue
 
 ### Request body
 
@@ -90,7 +92,10 @@ The backend:
   "stage_id": "needle_entry",
   "skill_level": "beginner",
   "image_base64": "ZmFrZQ==",
-  "student_question": "optional question"
+  "student_question": "optional question",
+  "simulation_confirmation": true,
+  "session_id": "session-123",
+  "student_name": "Student User"
 }
 ```
 
@@ -101,11 +106,15 @@ The backend:
 - `skill_level`: `beginner` or `intermediate`
 - `image_base64`: raw base64 image bytes, without a data URL prefix
 - `student_question`: optional free-text prompt from the learner
+- `simulation_confirmation`: required simulation-only acknowledgement before analysis
+- `session_id`: optional session id used to attach human-review cases
+- `student_name`: optional learner name for the review queue
 
 ### Successful response
 
 ```json
 {
+  "analysis_mode": "coaching",
   "step_status": "retry",
   "confidence": 0.83,
   "visible_observations": [
@@ -123,12 +132,22 @@ The backend:
   "coaching_message": "Rotate the driver slightly upward and start the bite more perpendicular to the surface.",
   "next_action": "Reposition the grip, retake the frame, and try the entry again.",
   "overlay_target_ids": ["entry_point", "needle_angle"],
-  "score_delta": 13
+  "score_delta": 13,
+  "safety_gate": {
+    "status": "cleared",
+    "confidence": 0.98,
+    "reason": "The image cleared the simulation-only safety screen.",
+    "refusal_message": null
+  },
+  "requires_human_review": false,
+  "human_review_reason": null,
+  "review_case_id": null
 }
 ```
 
 ### Response fields
 
+- `analysis_mode`: `coaching` or `blocked`
 - `step_status`: `pass`, `retry`, `unclear`, or `unsafe`
 - `confidence`: number from `0` to `1`
 - `visible_observations`: normalized list of visible cues the model could judge
@@ -137,6 +156,10 @@ The backend:
 - `next_action`: concrete next step for the learner
 - `overlay_target_ids`: allowed overlay ids for the current stage only
 - `score_delta`: deterministic integer computed by the backend
+- `safety_gate`: result of the simulation-only validation layer
+- `requires_human_review`: whether the session was queued for faculty review
+- `human_review_reason`: why the case was flagged
+- `review_case_id`: queue id when a human review case was created
 
 ### Status codes
 
@@ -148,8 +171,34 @@ The backend:
 ### Notes
 
 - a vision-capable model is required for this route
+- if the safety gate blocks the image, the response still returns `200` with `analysis_mode="blocked"`
 - `Qwen/Qwen2.5-VL-3B-Instruct` and `Qwen/Qwen2.5-Omni-7B` are good OpenAI-compatible examples
 - `Qwen3-4B` is not suitable for this route because it is text-only
+
+## `GET /review-cases`
+
+Returns the human validation queue.
+
+### Query params
+
+- `status`: optional `pending` or `resolved`
+- `session_id`: optional session filter
+
+## `POST /review-cases/{case_id}/resolve`
+
+Resolves a flagged session with human feedback.
+
+### Request body
+
+```json
+{
+  "reviewer_name": "Faculty Reviewer",
+  "reviewer_notes": "The AI was directionally correct but too uncertain.",
+  "corrected_step_status": "retry",
+  "corrected_coaching_message": "Slow the entry and reframe the angle before retrying.",
+  "rubric_feedback": "Add a stronger low-confidence escalation rule for shallow entries."
+}
+```
 
 ## `POST /debrief`
 

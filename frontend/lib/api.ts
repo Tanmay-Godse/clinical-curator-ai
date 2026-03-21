@@ -4,6 +4,8 @@ import type {
   DebriefRequest,
   DebriefResponse,
   ProcedureDefinition,
+  ResolveReviewCaseRequest,
+  ReviewCase,
 } from "@/lib/types";
 
 const API_BASE_URL = (
@@ -65,4 +67,43 @@ export async function generateDebrief(
   });
 
   return readJson<DebriefResponse>(response);
+}
+
+export async function listReviewCases(filters?: {
+  status?: "pending" | "resolved";
+  sessionId?: string;
+}): Promise<ReviewCase[]> {
+  const params = new URLSearchParams();
+  if (filters?.status) {
+    params.set("status", filters.status);
+  }
+  if (filters?.sessionId) {
+    params.set("session_id", filters.sessionId);
+  }
+
+  const query = params.toString();
+  const response = await fetch(
+    `${API_BASE_URL}/review-cases${query ? `?${query}` : ""}`,
+    {
+      cache: "no-store",
+    },
+  );
+
+  return readJson<ReviewCase[]>(response);
+}
+
+export async function resolveReviewCase(
+  caseId: string,
+  payload: ResolveReviewCaseRequest,
+): Promise<ReviewCase> {
+  const response = await fetch(`${API_BASE_URL}/review-cases/${caseId}/resolve`, {
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  return readJson<ReviewCase>(response);
 }

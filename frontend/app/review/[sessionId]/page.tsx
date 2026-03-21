@@ -1,21 +1,25 @@
 "use client";
 
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ReviewSummary } from "@/components/ReviewSummary";
-import { generateDebrief, getProcedure } from "@/lib/api";
+import { generateDebrief, getProcedure, listReviewCases } from "@/lib/api";
 import {
   buildSessionReviewSignature,
+  clearAuthUser,
+  getAuthUser,
   getCachedDebrief,
   getSession,
   saveSessionDebrief,
 } from "@/lib/storage";
 import type {
+  AuthUser,
   DebriefRequest,
   DebriefResponse,
   ProcedureDefinition,
+  ReviewCase,
   SessionRecord,
 } from "@/lib/types";
 
@@ -64,10 +68,13 @@ function requestSessionDebrief(session: SessionRecord): Promise<DebriefResponse>
 
 export default function ReviewPage() {
   const params = useParams();
+  const router = useRouter();
   const sessionParam = params.sessionId;
   const sessionId =
     typeof sessionParam === "string" ? sessionParam : sessionParam?.[0];
 
+  const [authUser, setAuthUser] = useState<AuthUser | null>(null);
+  const [reviewCases, setReviewCases] = useState<ReviewCase[]>([]);
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [procedure, setProcedure] = useState<ProcedureDefinition | null>(null);
   const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
@@ -76,6 +83,21 @@ export default function ReviewPage() {
   const [isSessionLoading, setIsSessionLoading] = useState(true);
 
   useEffect(() => {
+    const nextUser = getAuthUser();
+    if (!nextUser) {
+      const nextPath = sessionId ? `/review/${sessionId}` : "/review";
+      router.replace(`/login?role=student&next=${encodeURIComponent(nextPath)}`);
+      return;
+    }
+
+    setAuthUser(nextUser);
+  }, [router, sessionId]);
+
+  useEffect(() => {
+    if (!authUser) {
+      return;
+    }
+
     if (!sessionId) {
       setSession(null);
       setDebrief(null);
@@ -91,7 +113,7 @@ export default function ReviewPage() {
     setDebriefError(null);
     setIsDebriefLoading(false);
     setIsSessionLoading(false);
-  }, [sessionId]);
+  }, [authUser, sessionId]);
 
   useEffect(() => {
     const procedureId = session?.procedureId;
@@ -101,11 +123,13 @@ export default function ReviewPage() {
       return;
     }
 
+    const procedureIdSnapshot = procedureId;
+
     let cancelled = false;
 
     async function loadProcedure() {
       try {
-        const procedureResponse = await getProcedure(procedureId);
+        const procedureResponse = await getProcedure(procedureIdSnapshot);
         if (!cancelled) {
           setProcedure(procedureResponse);
         }
@@ -125,13 +149,16 @@ export default function ReviewPage() {
 
   useEffect(() => {
     if (!session) {
+      setReviewCases([]);
       setDebrief(null);
       setDebriefError(null);
       setIsDebriefLoading(false);
       return;
     }
 
-    const cachedDebrief = getCachedDebrief(session);
+    const sessionSnapshot = session;
+
+    const cachedDebrief = getCachedDebrief(sessionSnapshot);
     if (cachedDebrief) {
       setDebrief(cachedDebrief);
       setDebriefError(null);
@@ -139,7 +166,7 @@ export default function ReviewPage() {
       return;
     }
 
-    if (session.events.length === 0) {
+    if (sessionSnapshot.events.length === 0) {
       setDebrief(null);
       setDebriefError(null);
       setIsDebriefLoading(false);
@@ -154,7 +181,7 @@ export default function ReviewPage() {
       setIsDebriefLoading(true);
 
       try {
-        const debriefResponse = await requestSessionDebrief(session);
+        const debriefResponse = await requestSessionDebrief(sessionSnapshot);
 
         if (cancelled) {
           return;
@@ -162,7 +189,10 @@ export default function ReviewPage() {
 
         setDebrief(debriefResponse);
 
-        const updatedSession = saveSessionDebrief(session.id, debriefResponse);
+        const updatedSession = saveSessionDebrief(
+          sessionSnapshot.id,
+          debriefResponse,
+        );
         if (updatedSession) {
           setSession(updatedSession);
         }
@@ -188,7 +218,41 @@ export default function ReviewPage() {
     };
   }, [session]);
 
-  if (isSessionLoading) {
+  useEffect(() => {
+    if (!session) {
+      setReviewCases([]);
+      return;
+    }
+
+    const sessionSnapshot = session;
+    let cancelled = false;
+
+    async function loadReviewCases() {
+      try {
+        const response = await listReviewCases({ sessionId: sessionSnapshot.id });
+        if (!cancelled) {
+          setReviewCases(response);
+        }
+      } catch {
+        if (!cancelled) {
+          setReviewCases([]);
+        }
+      }
+    }
+
+    void loadReviewCases();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  function handleLogout() {
+    clearAuthUser();
+    router.push("/login");
+  }
+
+  if (!authUser || isSessionLoading) {
     return (
       <main className="page-shell">
         <div className="page-inner review-shell">
@@ -228,7 +292,7 @@ export default function ReviewPage() {
   }
 
   return (
-    <main className="page-shell">
+    <main className="page-shell review-page-shell">
       <div className="page-inner review-shell">
         <header className="page-header">
           <div className="brand">
@@ -237,20 +301,43 @@ export default function ReviewPage() {
           </div>
           <div className="button-row">
             <span className="pill">Phase 3 session review</span>
+            <span className="pill">
+              {authUser.name} · {authUser.role}
+            </span>
             <Link className="button-ghost" href="/">
               Landing
             </Link>
+            {authUser.role === "admin" ? (
+              <Link className="button-ghost" href="/admin/reviews">
+                Admin Queue
+              </Link>
+            ) : null}
             <Link className="button-secondary" href={`/train/${session.procedureId}`}>
               Back to Trainer
             </Link>
+            <button className="button-secondary" onClick={handleLogout}>
+              Logout
+            </button>
           </div>
         </header>
+
+        <section className="trainer-intro-strip review-intro-strip">
+          <div>
+            <span className="eyebrow">Session archive</span>
+            <h1 className="trainer-hero-title">Turn one practice run into a usable study record.</h1>
+          </div>
+          <p className="body-copy">
+            The review view keeps the attempt timeline, AI debrief, and quiz in one place
+            so the session feels more like a reusable notebook than a disposable result page.
+          </p>
+        </section>
 
         <ReviewSummary
           debrief={debrief}
           debriefError={debriefError}
           isDebriefLoading={isDebriefLoading}
           procedure={procedure}
+          reviewCases={reviewCases}
           session={session}
         />
       </div>
