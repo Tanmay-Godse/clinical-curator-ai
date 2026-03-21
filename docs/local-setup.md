@@ -2,6 +2,8 @@
 
 This guide walks through the full local setup for AI Clinical Skills Coach, including OpenAI-compatible and Anthropic-style AI backends, the local account flow, and the new equity-mode features.
 
+If you want the shortest OS-specific quickstart first, use `docs/how-to-run.md`.
+
 ## 1. Prerequisites
 
 Recommended local tooling:

@@ -20,6 +20,7 @@ AI Clinical Skills Coach is a simulation-only trainer for practicing a simple in
 
 ## Documentation
 
+- `docs/how-to-run.md`: OS-specific quickstart for Windows, Ubuntu, and macOS users
 - `docs/local-setup.md`: full setup, run, verification, and troubleshooting guide
 - `docs/api-reference.md`: backend contract, request and response shapes, and error behavior
 - `docs/safer-skills-roadmap.md`: recommended next modules with a safer-skills-first expansion order
