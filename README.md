@@ -1,6 +1,6 @@
 # AI Clinical Skills Coach
 
-AI Clinical Skills Coach is a simulation-only Phase 1 mock trainer for practicing a simple interrupted suture on a safe surface such as an orange, banana, or foam pad. The project is split into a Next.js frontend and a FastAPI backend, with the frontend calling live backend endpoints for procedure metadata and deterministic mock analysis.
+AI Clinical Skills Coach is a simulation-only Phase 2 trainer for practicing a simple interrupted suture on a safe surface such as an orange, banana, or foam pad. The project is split into a Next.js frontend and a FastAPI backend, with the frontend calling live backend endpoints for procedure metadata, Claude-powered frame analysis, and an AI review debrief.
 
 ## Documentation
 
@@ -9,19 +9,20 @@ AI Clinical Skills Coach is a simulation-only Phase 1 mock trainer for practicin
 - `frontend/README.md`: frontend-specific commands and notes
 - `backend/README.md`: backend-specific commands and notes
 
-## Phase 1 Scope
+## Phase 2 Scope
 
 - One procedure: `simple-interrupted-suture`
 - One training loop: landing -> trainer -> analyze -> review
 - Simulation-only framing throughout the app
 - Local browser session persistence
-- Deterministic mock analysis instead of real Claude integration
+- Claude-powered frame analysis
+- AI-generated review debrief and quiz
 
 ## Monorepo Layout
 
 ```text
 .
-├── backend/   FastAPI API, procedure contract, mock analysis, tests
+├── backend/   FastAPI API, procedure contract, Claude services, tests
 ├── docs/      Setup guide and API reference
 └── frontend/  Next.js landing, trainer, and review UI
 ```
@@ -36,6 +37,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env
+# add your Anthropic API key to backend/.env
 uvicorn app.main:app --reload --port 8000
 ```
 
@@ -62,6 +64,9 @@ curl http://localhost:8000/api/v1/procedures/simple-interrupted-suture
 curl -X POST http://localhost:8000/api/v1/analyze-frame \
   -H 'Content-Type: application/json' \
   -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ=="}'
+curl -X POST http://localhost:8000/api/v1/debrief \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","events":[]}'
 ```
 
 ### Frontend and backend quality checks
@@ -81,5 +86,5 @@ pytest
 
 - This build is for simulated practice only and does not replace instructors, clinical judgment, or real patient training.
 - The frontend stores session data in browser `localStorage`, so review pages depend on the same browser profile used during training.
-- Phase 2 will introduce Claude-powered frame analysis and AI debrief generation on top of the same frontend flow.
-
+- `POST /api/v1/analyze-frame` and `POST /api/v1/debrief` require `ANTHROPIC_API_KEY` in `backend/.env` for live AI behavior.
+- If the Anthropic key is missing, the backend returns a clear `503` explaining how to enable Phase 2 AI features.

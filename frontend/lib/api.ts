@@ -1,6 +1,8 @@
 import type {
   AnalyzeFrameRequest,
   AnalyzeFrameResponse,
+  DebriefRequest,
+  DebriefResponse,
   ProcedureDefinition,
 } from "@/lib/types";
 
@@ -48,4 +50,19 @@ export async function analyzeFrame(
   });
 
   return readJson<AnalyzeFrameResponse>(response);
+}
+
+export async function generateDebrief(
+  payload: DebriefRequest,
+): Promise<DebriefResponse> {
+  const response = await fetch(`${API_BASE_URL}/debrief`, {
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  return readJson<DebriefResponse>(response);
 }

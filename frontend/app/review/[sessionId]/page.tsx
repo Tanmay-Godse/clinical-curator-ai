@@ -5,9 +5,35 @@ import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 
 import { ReviewSummary } from "@/components/ReviewSummary";
-import { getProcedure } from "@/lib/api";
+import { generateDebrief, getProcedure } from "@/lib/api";
 import { getSession } from "@/lib/storage";
-import type { ProcedureDefinition, SessionRecord } from "@/lib/types";
+import type {
+  DebriefRequest,
+  DebriefResponse,
+  ProcedureDefinition,
+  SessionRecord,
+} from "@/lib/types";
+
+function buildDebriefPayload(session: SessionRecord): DebriefRequest {
+  return {
+    session_id: session.id,
+    procedure_id: session.procedureId,
+    skill_level: session.skillLevel,
+    events: session.events.map((event) => ({
+      stage_id: event.stageId,
+      attempt: event.attempt,
+      step_status: event.stepStatus,
+      issues: event.issues,
+      score_delta: event.scoreDelta,
+      coaching_message: event.coachingMessage,
+      overlay_target_ids: event.overlayTargetIds,
+      visible_observations: event.visibleObservations ?? [],
+      next_action: event.nextAction,
+      confidence: event.confidence,
+      created_at: event.createdAt,
+    })),
+  };
+}
 
 export default function ReviewPage() {
   const params = useParams();
@@ -17,6 +43,9 @@ export default function ReviewPage() {
 
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [procedure, setProcedure] = useState<ProcedureDefinition | null>(null);
+  const [debrief, setDebrief] = useState<DebriefResponse | null>(null);
+  const [debriefError, setDebriefError] = useState<string | null>(null);
+  const [isDebriefLoading, setIsDebriefLoading] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -38,17 +67,51 @@ export default function ReviewPage() {
     let cancelled = false;
 
     async function hydrateProcedure() {
+      setDebrief(null);
+      setDebriefError(null);
+      setIsDebriefLoading(sessionToHydrate.events.length > 0);
+
       try {
-        const procedureResponse = await getProcedure(sessionToHydrate.procedureId);
-        if (!cancelled) {
-          setProcedure(procedureResponse);
+        const procedurePromise = getProcedure(sessionToHydrate.procedureId);
+        const debriefPromise =
+          sessionToHydrate.events.length > 0
+            ? generateDebrief(buildDebriefPayload(sessionToHydrate))
+            : Promise.resolve(null);
+
+        const [procedureResult, debriefResult] = await Promise.allSettled([
+          procedurePromise,
+          debriefPromise,
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        if (procedureResult.status === "fulfilled") {
+          setProcedure(procedureResult.value);
+        } else {
+          setProcedure(null);
+        }
+
+        if (debriefResult.status === "fulfilled") {
+          setDebrief(debriefResult.value);
+        } else if (sessionToHydrate.events.length > 0) {
+          const reason = debriefResult.reason;
+          setDebriefError(
+            reason instanceof Error
+              ? reason.message
+              : "The AI debrief request failed for this session.",
+          );
         }
       } catch {
         if (!cancelled) {
           setProcedure(null);
+          setDebrief(null);
+          setDebriefError("The review page could not hydrate its API data.");
         }
       } finally {
         if (!cancelled) {
+          setIsDebriefLoading(false);
           setLoading(false);
         }
       }
@@ -68,7 +131,8 @@ export default function ReviewPage() {
           <div className="empty-state">
             <h1 className="review-title">Loading review</h1>
             <p className="review-subtle">
-              Reconstructing the local training session from browser storage.
+              Reconstructing the local training session and requesting the stored AI
+              debrief.
             </p>
           </div>
         </div>
@@ -109,7 +173,7 @@ export default function ReviewPage() {
             <span>Session Review</span>
           </div>
           <div className="button-row">
-            <span className="pill">Phase 1 local summary</span>
+            <span className="pill">Phase 2 AI summary</span>
             <Link className="button-ghost" href="/">
               Landing
             </Link>
@@ -119,7 +183,13 @@ export default function ReviewPage() {
           </div>
         </header>
 
-        <ReviewSummary procedure={procedure} session={session} />
+        <ReviewSummary
+          debrief={debrief}
+          debriefError={debriefError}
+          isDebriefLoading={isDebriefLoading}
+          procedure={procedure}
+          session={session}
+        />
       </div>
     </main>
   );

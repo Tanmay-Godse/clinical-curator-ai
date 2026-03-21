@@ -1,162 +1,155 @@
-from dataclasses import dataclass
+import json
+from typing import Any
 
-from app.schemas.analyze import AnalyzeFrameResponse, Issue
-from app.schemas.procedure import ProcedureStage
+from pydantic import ValidationError
 
-SEVERITY_PENALTY = {"low": 1, "medium": 2, "high": 4}
-
-
-@dataclass(frozen=True)
-class StageBehavior:
-    step_status: str
-    confidence: float
-    visible_observations: list[str]
-    issues: list[Issue]
-    coaching_message: str
-    next_action: str
-    overlay_target_ids: list[str]
+from app.core.config import settings
+from app.schemas.analyze import AnalysisDraft, AnalyzeFrameRequest, AnalyzeFrameResponse
+from app.schemas.procedure import ProcedureDefinition, ProcedureStage
+from app.services.anthropic_client import AIResponseError, send_json_message
+from app.services.procedure_loader import load_procedure, load_stage
+from app.services.scoring_service import (
+    InvalidOverlayTargetError,
+    compute_score_delta,
+    validate_overlay_target_ids,
+)
 
 
-MOCK_BEHAVIOR: dict[str, StageBehavior] = {
-    "setup": StageBehavior(
-        step_status="pass",
-        confidence=0.95,
-        visible_observations=[
-            "practice surface is centered in frame",
-            "needle driver is visible",
-            "suture material is ready to use",
-        ],
-        issues=[],
-        coaching_message="Clean setup. Keep the same framing before advancing.",
-        next_action="Move to the grip stage and keep your instrument visible.",
-        overlay_target_ids=["surface_center"],
-    ),
-    "grip": StageBehavior(
-        step_status="pass",
-        confidence=0.91,
-        visible_observations=[
-            "needle driver is visible at the correct end of the surface",
-            "hand position looks stable for a practice attempt",
-        ],
-        issues=[],
-        coaching_message="Your grip looks stable enough for the mock flow. Keep the wrist relaxed before entry.",
-        next_action="Advance to needle entry and focus on angle control.",
-        overlay_target_ids=["needle_driver_grip"],
-    ),
-    "needle_entry": StageBehavior(
-        step_status="retry",
-        confidence=0.83,
-        visible_observations=[
-            "entry zone is visible",
-            "instrument is close to the target point",
-            "needle angle appears too shallow for a clean bite",
-        ],
-        issues=[
-            Issue(
-                code="angle_shallow",
-                severity="medium",
-                message="Approach is too shallow for a confident needle entry.",
-            )
-        ],
-        coaching_message="Rotate the driver slightly upward and start the bite more perpendicular to the surface.",
-        next_action="Reposition the grip, retake the frame, and try the entry again.",
-        overlay_target_ids=["entry_point", "needle_angle"],
-    ),
-    "needle_exit": StageBehavior(
-        step_status="retry",
-        confidence=0.82,
-        visible_observations=[
-            "wound line is still visible",
-            "needle path is partially complete",
-            "exit point is not yet clearly established across the wound line",
-        ],
-        issues=[
-            Issue(
-                code="exit_not_visible",
-                severity="medium",
-                message="Complete the arc so the needle exits across the wound line.",
-            )
-        ],
-        coaching_message="Follow the arc through and let the tip emerge clearly on the far side before advancing.",
-        next_action="Retake the frame once the exit point is easier to see.",
-        overlay_target_ids=["exit_point", "wound_line_center"],
-    ),
-    "pull_through": StageBehavior(
-        step_status="pass",
-        confidence=0.9,
-        visible_observations=[
-            "suture thread is visible",
-            "thread path looks controlled during pull-through",
-        ],
-        issues=[],
-        coaching_message="Controlled pull-through. Keep the thread organized so the next knot looks clean.",
-        next_action="Advance to knot tying while maintaining gentle tension.",
-        overlay_target_ids=["thread_path"],
-    ),
-    "knot_tie": StageBehavior(
-        step_status="retry",
-        confidence=0.79,
-        visible_observations=[
-            "knot material is visible",
-            "the knot is present but not centered over the practice line",
-        ],
-        issues=[
-            Issue(
-                code="knot_off_center",
-                severity="medium",
-                message="The knot looks slightly off-center for a tidy finish.",
-            )
-        ],
-        coaching_message="Seat the knot closer to center and avoid twisting the thread as you tighten.",
-        next_action="Reset the knot position and capture one more attempt.",
-        overlay_target_ids=["knot_center"],
-    ),
-    "final_check": StageBehavior(
-        step_status="pass",
-        confidence=0.93,
-        visible_observations=[
-            "final stitch is visible",
-            "overall presentation is clean enough for a phase-one mock review",
-        ],
-        issues=[],
-        coaching_message="Nice finish for the mock workflow. Your final frame is clear and review-ready.",
-        next_action="Open the review page to see your phase-one summary.",
-        overlay_target_ids=["wound_line_center", "knot_center"],
-    ),
-}
+def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
+    procedure = load_procedure(payload.procedure_id)
+    stage = load_stage(procedure, payload.stage_id)
 
-
-def build_mock_analysis(
-    stage: ProcedureStage,
-    student_question: str | None = None,
-) -> AnalyzeFrameResponse:
-    behavior = MOCK_BEHAVIOR[stage.id]
-    allowed_overlay_targets = set(stage.overlay_targets)
-    issues = [issue for issue in behavior.issues]
-    overlay_target_ids = [
-        target_id
-        for target_id in behavior.overlay_target_ids
-        if target_id in allowed_overlay_targets
-    ]
-    score_delta = stage.score_weight - sum(
-        SEVERITY_PENALTY.get(issue.severity, 0) for issue in issues
+    analysis_draft = request_stage_analysis(
+        payload=payload,
+        procedure=procedure,
+        stage=stage,
     )
-
-    coaching_message = behavior.coaching_message
-    if student_question:
-        coaching_message = (
-            f"{behavior.coaching_message} You asked: '{student_question}'. "
-            "Use the same adjustment on your next practice attempt."
+    try:
+        overlay_target_ids = validate_overlay_target_ids(
+            stage,
+            analysis_draft.overlay_target_ids,
         )
+    except InvalidOverlayTargetError as exc:
+        raise AIResponseError(str(exc)) from exc
 
     return AnalyzeFrameResponse(
-        step_status=behavior.step_status,  # type: ignore[arg-type]
-        confidence=behavior.confidence,
-        visible_observations=behavior.visible_observations,
-        issues=issues,
-        coaching_message=coaching_message,
-        next_action=behavior.next_action,
+        step_status=analysis_draft.step_status,
+        confidence=analysis_draft.confidence,
+        visible_observations=_clean_lines(analysis_draft.visible_observations),
+        issues=analysis_draft.issues,
+        coaching_message=analysis_draft.coaching_message.strip(),
+        next_action=analysis_draft.next_action.strip(),
         overlay_target_ids=overlay_target_ids,
-        score_delta=max(0, score_delta),
+        score_delta=compute_score_delta(
+            stage=stage,
+            step_status=analysis_draft.step_status,
+            issues=analysis_draft.issues,
+        ),
     )
 
+
+def request_stage_analysis(
+    *,
+    payload: AnalyzeFrameRequest,
+    procedure: ProcedureDefinition,
+    stage: ProcedureStage,
+) -> AnalysisDraft:
+    response_data = send_json_message(
+        model=settings.anthropic_analysis_model,
+        max_tokens=settings.anthropic_analysis_max_tokens,
+        system_prompt=_build_analysis_system_prompt(),
+        user_content=_build_analysis_user_content(
+            payload=payload,
+            procedure=procedure,
+            stage=stage,
+        ),
+        output_schema=AnalysisDraft.model_json_schema(),
+    )
+
+    try:
+        draft = AnalysisDraft.model_validate(response_data)
+    except ValidationError as exc:
+        raise AIResponseError("Claude returned an invalid analysis payload.") from exc
+
+    if len(draft.issues) > 3:
+        raise AIResponseError("Claude returned too many issues for a single stage.")
+
+    return draft
+
+
+def _build_analysis_system_prompt() -> str:
+    return (
+        "You are an AI clinical skills coach reviewing a simulation-only suturing practice frame. "
+        "The learner is practicing a simple interrupted suture on a banana, orange, or foam pad. "
+        "Never imply diagnosis, patient care, or real-world medical clearance. "
+        "Base every judgment only on what is visible in the frame and the provided stage rubric. "
+        "Use 'pass' only when the current stage objective is visibly met. "
+        "Use 'retry' when the frame is clear enough to judge but the technique needs correction. "
+        "Use 'unclear' when framing, blur, occlusion, or missing tools make the step hard to judge. "
+        "Use 'unsafe' when the learner appears to be using instruments or tension in a clearly unsafe way even for simulation. "
+        "Only return overlay_target_ids from the allowed list. "
+        "Write concise, specific coaching in a supportive tone."
+    )
+
+
+def _build_analysis_user_content(
+    *,
+    payload: AnalyzeFrameRequest,
+    procedure: ProcedureDefinition,
+    stage: ProcedureStage,
+) -> list[dict[str, Any]]:
+    allowed_targets = [
+        {
+            "id": target.id,
+            "label": target.label,
+            "description": target.description,
+        }
+        for target in procedure.named_overlay_targets
+        if target.id in stage.overlay_targets
+    ]
+
+    stage_context = {
+        "procedure_title": procedure.title,
+        "practice_surface": procedure.practice_surface,
+        "simulation_only": procedure.simulation_only,
+        "skill_level": payload.skill_level,
+        "stage": {
+            "id": stage.id,
+            "title": stage.title,
+            "objective": stage.objective,
+            "visible_checks": stage.visible_checks,
+            "common_errors": stage.common_errors,
+            "score_weight": stage.score_weight,
+        },
+        "allowed_overlay_targets": allowed_targets,
+        "student_question": payload.student_question or "",
+        "response_rules": {
+            "visible_observations": "Return 2 to 4 short observations grounded in the frame.",
+            "issues": "Return 0 to 3 issues. Each issue needs a code, severity, and message.",
+            "overlay_target_ids": "Return only allowed ids that match the most helpful on-screen coaching targets.",
+            "coaching_message": "Return one short coaching paragraph for the learner's next attempt.",
+            "next_action": "Return one clear next action sentence.",
+        },
+    }
+
+    return [
+        {
+            "type": "text",
+            "text": (
+                "Review this suturing practice frame and return JSON that follows the schema.\n\n"
+                f"{json.dumps(stage_context, indent=2)}"
+            ),
+        },
+        {
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/jpeg",
+                "data": payload.image_base64,
+            },
+        },
+    ]
+
+
+def _clean_lines(lines: list[str]) -> list[str]:
+    return [line.strip() for line in lines if line.strip()]

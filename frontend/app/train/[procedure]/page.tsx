@@ -253,6 +253,9 @@ export default function TrainProcedurePage() {
         scoreDelta: response.score_delta,
         coachingMessage: response.coaching_message,
         overlayTargetIds: response.overlay_target_ids,
+        visibleObservations: response.visible_observations,
+        nextAction: response.next_action,
+        confidence: response.confidence,
         createdAt: new Date().toISOString(),
       };
 
@@ -268,7 +271,7 @@ export default function TrainProcedurePage() {
       setFeedbackStageId(currentStage.id);
     } catch (error) {
       setAnalyzeError(
-        error instanceof Error ? error.message : "The mock analysis request failed.",
+        error instanceof Error ? error.message : "The AI analysis request failed.",
       );
     } finally {
       setIsAnalyzing(false);
@@ -364,7 +367,7 @@ export default function TrainProcedurePage() {
             <p className="metric-value">{currentStageAttempts}</p>
           </article>
           <article className="metric-card">
-            <p className="metric-label">Total Mock Score</p>
+            <p className="metric-label">Total Score</p>
             <p className="metric-value">{totalScore}</p>
           </article>
         </section>
@@ -426,9 +429,9 @@ export default function TrainProcedurePage() {
                 <div>
                   <h2 className="panel-title">Stage controls</h2>
                   <p className="panel-copy">
-                    The mock analyzer ignores image content in Phase 1, but the live API
-                    loop, stage contract, and overlay targets already behave like a real
-                    coach.
+                    Phase 2 analyzes the captured training frame with Claude and keeps
+                    the stage contract, score calculation, and overlay targets aligned
+                    with the backend rubric.
                   </p>
                 </div>
               </div>
@@ -469,7 +472,7 @@ export default function TrainProcedurePage() {
                   disabled={!cameraReady || isAnalyzing}
                   onClick={() => void handleAnalyzeStep()}
                 >
-                  {isAnalyzing ? "Analyzing Mock Step..." : "Check My Step"}
+                  {isAnalyzing ? "Analyzing Step..." : "Check My Step"}
                 </button>
                 <button
                   className="button-secondary"
@@ -489,7 +492,7 @@ export default function TrainProcedurePage() {
 
               <p className="fine-print" style={{ marginTop: 16 }}>
                 If four-corner calibration feels unstable, switch to the centered guide. The
-                overlay renderer works in both modes.
+                overlay renderer and AI coaching flow work in both modes.
               </p>
             </article>
           </section>

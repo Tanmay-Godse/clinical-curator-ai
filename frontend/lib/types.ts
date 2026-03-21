@@ -75,7 +75,43 @@ export type SessionEvent = {
   scoreDelta: number;
   coachingMessage: string;
   overlayTargetIds: string[];
+  visibleObservations?: string[];
+  nextAction?: string;
+  confidence?: number;
   createdAt: string;
+};
+
+export type DebriefEventRequest = {
+  stage_id: string;
+  attempt: number;
+  step_status: StepStatus;
+  issues: Issue[];
+  score_delta: number;
+  coaching_message: string;
+  overlay_target_ids: string[];
+  visible_observations: string[];
+  next_action?: string;
+  confidence?: number;
+  created_at: string;
+};
+
+export type QuizQuestion = {
+  question: string;
+  answer: string;
+};
+
+export type DebriefRequest = {
+  session_id: string;
+  procedure_id: string;
+  skill_level: SkillLevel;
+  events: DebriefEventRequest[];
+};
+
+export type DebriefResponse = {
+  strengths: string[];
+  improvement_areas: string[];
+  practice_plan: string[];
+  quiz: QuizQuestion[];
 };
 
 export type SessionRecord = {

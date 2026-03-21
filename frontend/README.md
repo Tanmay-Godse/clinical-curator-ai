@@ -1,6 +1,6 @@
 # Frontend
 
-This package contains the Next.js UI for the Phase 1 trainer.
+This package contains the Next.js UI for the Phase 2 trainer.
 
 ## Setup
 
@@ -34,5 +34,6 @@ NEXT_PUBLIC_API_BASE_URL=http://localhost:8000/api/v1
 - camera capture and calibration UI
 - overlay rendering
 - local session persistence
+- AI debrief request and review rendering
 
 For the full project walkthrough, use `../docs/local-setup.md`.

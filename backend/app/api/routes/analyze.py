@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException
 
 from app.schemas.analyze import AnalyzeFrameRequest, AnalyzeFrameResponse
-from app.services.analysis_service import build_mock_analysis
-from app.services.procedure_loader import (
-    ProcedureNotFoundError,
-    StageNotFoundError,
-    load_procedure,
-    load_stage,
+from app.services import analysis_service
+from app.services.anthropic_client import (
+    AIConfigurationError,
+    AIRequestError,
+    AIResponseError,
 )
+from app.services.procedure_loader import ProcedureNotFoundError, StageNotFoundError
 
 router = APIRouter(tags=["analyze"])
 
@@ -15,10 +15,10 @@ router = APIRouter(tags=["analyze"])
 @router.post("/analyze-frame", response_model=AnalyzeFrameResponse)
 def analyze_frame(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     try:
-        procedure = load_procedure(payload.procedure_id)
-        stage = load_stage(procedure, payload.stage_id)
+        return analysis_service.analyze_frame_payload(payload)
     except (ProcedureNotFoundError, StageNotFoundError) as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-
-    return build_mock_analysis(stage=stage, student_question=payload.student_question)
-
+    except AIConfigurationError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except (AIRequestError, AIResponseError) as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc

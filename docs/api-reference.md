@@ -1,6 +1,6 @@
 # API Reference
 
-The backend exposes a small Phase 1 API under:
+The backend exposes a small Phase 2 API under:
 
 ```text
 http://localhost:8000/api/v1
@@ -56,7 +56,7 @@ curl http://localhost:8000/api/v1/procedures/simple-interrupted-suture
 
 ## `POST /analyze-frame`
 
-Phase 1 uses a deterministic mock response based on `stage_id`. The image payload is accepted and validated, but the mock logic does not inspect it yet.
+This endpoint submits a single captured trainer frame to the backend for Claude-powered stage analysis. The backend validates the request, prompts Claude with the procedure rubric, validates the returned JSON, rejects unknown overlay target ids, and computes `score_delta` in Python.
 
 ### Example request
 
@@ -109,19 +109,94 @@ curl -X POST http://localhost:8000/api/v1/analyze-frame \
 }
 ```
 
-## Phase 1 mock stage behavior
+### Notes
 
-The deterministic backend returns:
+- Requires `ANTHROPIC_API_KEY` in `backend/.env`
+- Returns `503` when Phase 2 AI is not configured
+- Returns `502` if the model response is invalid or the upstream call fails
+- Uses stage-specific allowed `overlay_target_ids`
 
-- `pass` for `setup`
-- `pass` for `grip`
-- `retry` for `needle_entry`
-- `retry` for `needle_exit`
-- `pass` for `pull_through`
-- `retry` for `knot_tie`
-- `pass` for `final_check`
+## `POST /debrief`
 
-This is intentional so the frontend can demonstrate both retry and pass flows before real Claude analysis is added.
+This endpoint generates the review-page debrief from the stored local session history.
+
+### Example request
+
+```bash
+curl -X POST http://localhost:8000/api/v1/debrief \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "session_id": "demo-session",
+    "procedure_id": "simple-interrupted-suture",
+    "skill_level": "beginner",
+    "events": [
+      {
+        "stage_id": "needle_entry",
+        "attempt": 1,
+        "step_status": "retry",
+        "issues": [
+          {
+            "code": "angle_shallow",
+            "severity": "medium",
+            "message": "The angle is too shallow."
+          }
+        ],
+        "score_delta": 13,
+        "coaching_message": "Rotate upward before retrying.",
+        "overlay_target_ids": ["entry_point", "needle_angle"],
+        "visible_observations": [
+          "surface is centered",
+          "entry zone is visible"
+        ],
+        "next_action": "Retry the entry stage.",
+        "confidence": 0.88,
+        "created_at": "2026-03-20T17:10:00.000Z"
+      }
+    ]
+  }'
+```
+
+### Response body
+
+```json
+{
+  "strengths": [
+    "You kept the practice surface centered during the attempt.",
+    "Your grip remained stable enough to judge the frame.",
+    "You captured a reviewable image for coaching."
+  ],
+  "improvement_areas": [
+    "Improve the entry angle on the first bite.",
+    "Keep the needle arc consistent through the wound line.",
+    "Seat the knot more centrally during the final tie."
+  ],
+  "practice_plan": [
+    "Repeat the entry stage with a more perpendicular approach.",
+    "Practice one slow exit arc while keeping the far side visible.",
+    "Finish with one centered knot attempt and review the frame."
+  ],
+  "quiz": [
+    {
+      "question": "What does a shallow entry angle usually affect?",
+      "answer": "It makes the first bite less confident and harder to control."
+    },
+    {
+      "question": "Why should the far-side exit remain visible?",
+      "answer": "Visibility helps confirm the arc completes across the practice line."
+    },
+    {
+      "question": "What does a centered final knot improve?",
+      "answer": "It improves the presentation and alignment of the finished stitch."
+    }
+  ]
+}
+```
+
+### Notes
+
+- Empty `events` are supported and return a structured fallback debrief
+- Non-empty `events` use Claude to produce strengths, improvement areas, a 3-step practice plan, and a 3-question quiz
+- Returns `503` when Phase 2 AI is not configured for non-empty sessions
 
 ## Frontend-local session model
 
@@ -135,8 +210,4 @@ Each local session includes:
 - stage events
 - score deltas
 - coaching messages
-
-## Phase 2 note
-
-Phase 2 will keep the same endpoint-driven structure but replace the deterministic analyze behavior with Claude-powered frame analysis and add AI debrief generation.
-
+- optional visible observations, confidence, and next-action data for the review debrief

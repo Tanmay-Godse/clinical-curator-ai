@@ -36,8 +36,8 @@ export function ProcedureStepper({
         <div>
           <h2 className="panel-title">Procedure stepper</h2>
           <p className="panel-copy">
-            Choose a stage, practice the visible checks, and use the live mock API to
-            log each attempt.
+            Choose a stage, practice the visible checks, and log each attempt through the
+            live AI analysis flow.
           </p>
         </div>
         <button className="button-secondary" disabled={!canAdvance} onClick={onAdvance}>

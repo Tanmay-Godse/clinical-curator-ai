@@ -33,3 +33,14 @@ class AnalyzeFrameResponse(BaseModel):
     overlay_target_ids: list[str]
     score_delta: int = Field(ge=0)
 
+
+class AnalysisDraft(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    step_status: Literal["pass", "retry", "unclear", "unsafe"]
+    confidence: float = Field(ge=0, le=1)
+    visible_observations: list[str] = Field(min_length=2, max_length=4)
+    issues: list[Issue] = Field(default_factory=list, max_length=3)
+    coaching_message: str
+    next_action: str
+    overlay_target_ids: list[str] = Field(default_factory=list, max_length=3)

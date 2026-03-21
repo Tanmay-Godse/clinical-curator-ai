@@ -1,10 +1,18 @@
 "use client";
 
-import type { ProcedureDefinition, SessionEvent, SessionRecord } from "@/lib/types";
+import type {
+  DebriefResponse,
+  ProcedureDefinition,
+  SessionEvent,
+  SessionRecord,
+} from "@/lib/types";
 
 type ReviewSummaryProps = {
   session: SessionRecord;
   procedure: ProcedureDefinition | null;
+  debrief: DebriefResponse | null;
+  isDebriefLoading: boolean;
+  debriefError: string | null;
 };
 
 function toStageLabel(stageId: string, procedure: ProcedureDefinition | null) {
@@ -18,25 +26,33 @@ function getStatusClass(status: SessionEvent["stepStatus"]) {
   return `status-badge status-${status}`;
 }
 
-export function ReviewSummary({ session, procedure }: ReviewSummaryProps) {
+export function ReviewSummary({
+  session,
+  procedure,
+  debrief,
+  isDebriefLoading,
+  debriefError,
+}: ReviewSummaryProps) {
   const totalScore = session.events.reduce((sum, event) => sum + event.scoreDelta, 0);
   const latestFeedback = session.events.at(-1)?.coachingMessage ?? "No coaching recorded yet.";
 
   return (
     <section className="review-grid">
       <article className="panel">
-        <span className="pill">Local session recap</span>
+        <span className="pill">AI session recap</span>
         <h1 className="review-title" style={{ marginTop: 16 }}>
-          Phase 1 review
+          Phase 2 review
         </h1>
         <p className="review-subtle" style={{ marginTop: 14 }}>
-          This page renders from browser session data and the stored stage history. AI
-          debriefing arrives in Phase 2, but the review loop is already in place.
+          This page still hydrates from browser session data first, then layers on the
+          stored AI debrief for the finished practice session.
         </p>
         <p className="review-score" style={{ marginTop: 18 }}>
           {totalScore}
         </p>
-        <p className="review-subtle">Total mock score across {session.events.length} attempts.</p>
+        <p className="review-subtle">
+          Total score across {session.events.length} logged attempts.
+        </p>
 
         <div className="summary-grid" style={{ marginTop: 22 }}>
           <article className="metric-card">
@@ -61,7 +77,7 @@ export function ReviewSummary({ session, procedure }: ReviewSummaryProps) {
         <article className="review-card" style={{ marginTop: 22 }}>
           <header>
             <strong>Last coaching cue</strong>
-            <span className="pill">Ready for Phase 2</span>
+            <span className="pill">Latest attempt</span>
           </header>
           <p className="review-subtle">{latestFeedback}</p>
         </article>
@@ -69,6 +85,79 @@ export function ReviewSummary({ session, procedure }: ReviewSummaryProps) {
 
       <section>
         <article className="review-card">
+          <header>
+            <strong>AI debrief</strong>
+            <span className="pill">Claude review</span>
+          </header>
+          {isDebriefLoading ? (
+            <p className="review-subtle">
+              Generating the AI debrief from the stored stage history.
+            </p>
+          ) : null}
+
+          {!isDebriefLoading && debriefError ? (
+            <div className="feedback-block" style={{ marginTop: 14 }}>
+              <div className="feedback-header">
+                <strong>Debrief unavailable</strong>
+                <span className="status-badge status-unsafe">attention</span>
+              </div>
+              <p className="review-subtle">{debriefError}</p>
+            </div>
+          ) : null}
+
+          {!isDebriefLoading && !debriefError && session.events.length === 0 ? (
+            <p className="review-subtle">
+              Capture at least one analyzed step to generate the personalized AI debrief.
+            </p>
+          ) : null}
+
+          {!isDebriefLoading && !debriefError && debrief ? (
+            <div className="debrief-stack">
+              <section className="debrief-block">
+                <strong>Strengths</strong>
+                <ul className="feedback-list" style={{ marginTop: 12 }}>
+                  {debrief.strengths.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="debrief-block">
+                <strong>Improvement areas</strong>
+                <ul className="feedback-list" style={{ marginTop: 12 }}>
+                  {debrief.improvement_areas.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ul>
+              </section>
+
+              <section className="debrief-block">
+                <strong>3-step practice plan</strong>
+                <ol className="numbered-list" style={{ marginTop: 12 }}>
+                  {debrief.practice_plan.map((item) => (
+                    <li key={item}>{item}</li>
+                  ))}
+                </ol>
+              </section>
+
+              <section className="debrief-block">
+                <strong>Quick quiz</strong>
+                <ul className="timeline-list" style={{ marginTop: 12 }}>
+                  {debrief.quiz.map((item) => (
+                    <li className="timeline-item" key={item.question}>
+                      <p style={{ margin: 0, fontWeight: 700 }}>{item.question}</p>
+                      <p className="review-subtle" style={{ marginTop: 10 }}>
+                        {item.answer}
+                      </p>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            </div>
+          ) : null}
+        </article>
+
+        <article className="review-card" style={{ marginTop: 20 }}>
           <header>
             <strong>Stage timeline</strong>
             <span className="pill">{session.events.length} logged attempts</span>
@@ -90,18 +179,6 @@ export function ReviewSummary({ session, procedure }: ReviewSummaryProps) {
               </li>
             ))}
           </ul>
-        </article>
-
-        <article className="review-card" style={{ marginTop: 20 }}>
-          <header>
-            <strong>Phase 2 note</strong>
-            <span className="pill">Planned</span>
-          </header>
-          <p className="review-subtle">
-            The next phase will keep this exact structure and add Claude-powered frame
-            analysis plus an AI-generated debrief and quiz. The local review loop is
-            already stable enough for that upgrade path.
-          </p>
         </article>
       </section>
     </section>

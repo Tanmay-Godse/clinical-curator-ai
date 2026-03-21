@@ -1,6 +1,6 @@
 # Local Setup Guide
 
-This guide walks through the full local setup for the Phase 1 version of AI Clinical Skills Coach.
+This guide walks through the full local setup for the Phase 2 version of AI Clinical Skills Coach.
 
 ## 1. Prerequisites
 
@@ -46,6 +46,20 @@ uvicorn app.main:app --reload --port 8000
 - installs FastAPI, pytest, and the other backend dependencies
 - creates a local `.env` file
 - starts the API at `http://localhost:8000`
+
+### Required backend environment for Phase 2
+
+Open `backend/.env` and set:
+
+```env
+FRONTEND_ORIGIN=http://localhost:3000
+SIMULATION_ONLY=true
+ANTHROPIC_API_KEY=your_anthropic_api_key_here
+ANTHROPIC_ANALYSIS_MODEL=claude-sonnet-4-6
+ANTHROPIC_DEBRIEF_MODEL=claude-haiku-4-5
+```
+
+If `ANTHROPIC_API_KEY` is empty, the trainer UI still loads, but live analysis and AI debrief calls return a clear `503` message.
 
 ### Expected result
 
@@ -110,7 +124,7 @@ This should return the procedure definition with:
 - 8 named overlay targets
 - simulation-only metadata
 
-### Mock analyze endpoint
+### Analyze endpoint
 
 ```bash
 curl -X POST http://localhost:8000/api/v1/analyze-frame \
@@ -118,7 +132,7 @@ curl -X POST http://localhost:8000/api/v1/analyze-frame \
   -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ=="}'
 ```
 
-This should return a mock `retry` response with:
+With a valid Anthropic key, this should return a schema-valid AI response with:
 
 - `step_status`
 - `visible_observations`
@@ -126,6 +140,18 @@ This should return a mock `retry` response with:
 - `coaching_message`
 - `overlay_target_ids`
 - `score_delta`
+
+Without an Anthropic key, it should return a `503` with a message explaining how to enable Phase 2 AI features.
+
+### Debrief endpoint
+
+```bash
+curl -X POST http://localhost:8000/api/v1/debrief \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","events":[]}'
+```
+
+This route returns a three-part debrief and quiz. It uses a simple fallback response when `events` is empty, and it uses Claude for non-empty session histories.
 
 ## 7. How to use the trainer
 
@@ -140,9 +166,9 @@ Once both servers are running:
    - centered guide fallback mode
 6. Select a stage if you want to jump around
 7. Click `Check My Step`
-8. Review the mock feedback in the side panel
+8. Review the AI feedback in the side panel
 9. Click `Advance to Next Stage` after a passing stage
-10. Click `Open Review` after the final passing stage
+10. Click `Open Review` after the final passing stage to request the AI debrief
 
 ## 8. Local quality checks
 
@@ -211,11 +237,22 @@ Use the same browser profile and same machine where you completed the trainer fl
 
 Use the `Start Fresh Session` button in the trainer UI.
 
+### Analysis or debrief returns a 503
+
+This usually means `ANTHROPIC_API_KEY` is missing in `backend/.env`.
+
+Check:
+
+```bash
+cat backend/.env
+```
+
+Make sure `ANTHROPIC_API_KEY` is set, then restart `uvicorn`.
+
 ## 10. Current limitations
 
-- analysis is deterministic and mocked in Phase 1
-- there is no Claude integration yet
-- there is no backend debrief route yet
+- the trainer supports one procedure only: `simple-interrupted-suture`
+- live AI behavior depends on a valid Anthropic API key
 - session history is stored locally in the browser
+- there is no database-backed persistence yet
 - the product is simulation-only and not intended for real clinical use
-

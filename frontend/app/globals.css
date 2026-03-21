@@ -350,12 +350,25 @@ img {
 .stage-list,
 .feedback-card,
 .feedback-list,
-.timeline-list {
+.timeline-list,
+.debrief-stack {
   display: grid;
   gap: 12px;
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.debrief-block {
+  padding-top: 4px;
+}
+
+.numbered-list {
+  display: grid;
+  gap: 12px;
+  list-style: decimal;
+  padding-left: 22px;
+  margin: 0;
 }
 
 .stage-row {
