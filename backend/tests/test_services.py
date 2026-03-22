@@ -1,7 +1,7 @@
 import pytest
 
 from app.schemas.analyze import AnalyzeFrameRequest, SafetyGateResult
-from app.schemas.coach import CoachChatRequest
+from app.schemas.coach import CoachChatMessage, CoachChatRequest
 from app.schemas.debrief import DebriefRequest, DebriefEvent
 from app.schemas.knowledge import KnowledgePackRequest
 from app.schemas.review import ResolveReviewCaseRequest
@@ -380,6 +380,33 @@ def test_coach_service_blocks_when_transcription_fails(monkeypatch) -> None:
     assert "empty transcript" in response.coach_message.lower()
     assert "type" in response.plan_summary.lower()
     assert response.learner_goal_summary == ""
+
+
+def test_coach_service_fallback_waits_for_learner_after_assistant_turn() -> None:
+    response = coach_service._build_fallback_response(
+        payload=CoachChatRequest(
+            procedure_id="simple-interrupted-suture",
+            stage_id="needle_entry",
+            skill_level="beginner",
+            simulation_confirmation=True,
+            messages=[
+                CoachChatMessage(
+                    role="assistant",
+                    content="Tilt the needle slightly left and show the entry point again.",
+                )
+            ],
+        ),
+        procedure=coach_service.load_procedure("simple-interrupted-suture"),
+        stage=coach_service.load_stage(
+            coach_service.load_procedure("simple-interrupted-suture"),
+            "needle_entry",
+        ),
+    )
+
+    assert response.conversation_stage == "guiding"
+    assert "show the" in response.coach_message.lower()
+    assert "when you are ready" in response.coach_message.lower()
+    assert "wait for the learner" in response.plan_summary.lower()
 
 
 def test_safety_service_blocks_without_simulation_confirmation() -> None:

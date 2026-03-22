@@ -52,15 +52,18 @@ import type {
   SkillLevel,
 } from "@/lib/types";
 
-const AUTO_COACH_INTERVAL_MS = 5_000;
+const AUTO_COACH_INTERVAL_MS = 1_000;
 const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
 const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
 const VOICE_RECORDING_MIN_SPEECH_MS = 400;
 const VOICE_RECORDING_SILENCE_DURATION_MS = 1_100;
+const VOICE_POST_SPEAK_LISTEN_DELAY_MS = 350;
 const VOICE_RELISTEN_DELAY_MS = 120;
 const VOICE_RECOVERY_RETRY_DELAY_MS = 250;
 const VOICE_PROACTIVE_REPROMPT_DELAY_MS = 500;
 const VOICE_PROACTIVE_REPROMPT_AFTER_SILENT_WINDOWS = 3;
+const VOICE_MIN_GAP_BETWEEN_PROACTIVE_TURNS_MS = 12_000;
+const VOICE_DUPLICATE_GUIDANCE_COOLDOWN_MS = 20_000;
 
 type VoiceSessionStatus =
   | "idle"
@@ -81,6 +84,14 @@ type PracticeSurfaceOption = {
 type LiveShellIconProps = {
   className?: string;
 };
+
+function buildCoachMessageSignature(message: string): string {
+  return message
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
 
 function ChecklistIcon({ className }: LiveShellIconProps) {
   return (
@@ -343,6 +354,12 @@ export default function TrainProcedurePage() {
   const demoDeadlineRef = useRef<number | null>(null);
   const demoSessionExpiredRef = useRef(false);
   const liveCaptureProfileRef = useRef<string | null>(null);
+  const lastCoachMessageRef = useRef<{
+    at: number;
+    conversationStage: CoachChatResponse["conversation_stage"];
+    signature: string;
+  } | null>(null);
+  const lastCoachTurnAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -992,6 +1009,8 @@ export default function TrainProcedurePage() {
     setCoachTurn(null);
     setCoachMessages([]);
     coachMessagesRef.current = [];
+    lastCoachMessageRef.current = null;
+    lastCoachTurnAtRef.current = null;
     setVoiceSessionStatus(cameraReady ? "starting" : "idle");
   }, [cameraReady, currentStageId]);
 
@@ -1054,6 +1073,19 @@ export default function TrainProcedurePage() {
 
       while (!cancelled && voiceLoopGenerationRef.current === generation) {
         if (shouldRequestCoachTurn) {
+          const lastCoachTurnAt = lastCoachTurnAtRef.current;
+          if (
+            voiceChatEnabled &&
+            coachMessagesRef.current.length > 0 &&
+            lastCoachTurnAt !== null &&
+            Date.now() - lastCoachTurnAt < VOICE_MIN_GAP_BETWEEN_PROACTIVE_TURNS_MS
+          ) {
+            setVoiceSessionStatus("listening");
+            await waitForCoachLoop(VOICE_RELISTEN_DELAY_MS);
+            shouldRequestCoachTurn = false;
+            continue;
+          }
+
           setVoiceSessionStatus(
             coachMessagesRef.current.length === 0 ? "starting" : "watching",
           );
@@ -1076,16 +1108,46 @@ export default function TrainProcedurePage() {
             continue;
           }
 
-          appendCoachMessage("assistant", proactiveResponse.coach_message);
+          const coachSignature = buildCoachMessageSignature(
+            proactiveResponse.coach_message,
+          );
+          const lastCoachMessage = lastCoachMessageRef.current;
+          const isDuplicateGuidance =
+            Boolean(coachSignature) &&
+            Boolean(lastCoachMessage) &&
+            lastCoachMessage?.signature === coachSignature &&
+            Date.now() - lastCoachMessage.at < VOICE_DUPLICATE_GUIDANCE_COOLDOWN_MS;
+
+          if (!isDuplicateGuidance) {
+            appendCoachMessage("assistant", proactiveResponse.coach_message);
+          }
 
           if (voiceChatEnabled) {
+            if (isDuplicateGuidance) {
+              setVoiceSessionStatus("listening");
+              await waitForCoachLoop(VOICE_RELISTEN_DELAY_MS);
+              shouldRequestCoachTurn = false;
+              continue;
+            }
+
             setVoiceSessionStatus("speaking");
             await speakTextAndWait(
               proactiveResponse.coach_message,
               equityMode.feedbackLanguage,
               equityMode.coachVoice,
             );
+            lastCoachMessageRef.current = {
+              at: Date.now(),
+              conversationStage: proactiveResponse.conversation_stage,
+              signature: coachSignature,
+            };
+            lastCoachTurnAtRef.current = Date.now();
 
+            if (cancelled || voiceLoopGenerationRef.current !== generation) {
+              return;
+            }
+
+            await waitForCoachLoop(VOICE_POST_SPEAK_LISTEN_DELAY_MS);
             if (cancelled || voiceLoopGenerationRef.current !== generation) {
               return;
             }
@@ -1190,13 +1252,42 @@ export default function TrainProcedurePage() {
             learnerResponse.learner_goal_summary.trim(),
           );
         }
-        appendCoachMessage("assistant", learnerResponse.coach_message);
-        setVoiceSessionStatus("speaking");
-        await speakTextAndWait(
+        const coachSignature = buildCoachMessageSignature(
           learnerResponse.coach_message,
-          equityMode.feedbackLanguage,
-          equityMode.coachVoice,
         );
+        const lastCoachMessage = lastCoachMessageRef.current;
+        const isDuplicateGuidance =
+          Boolean(coachSignature) &&
+          Boolean(lastCoachMessage) &&
+          lastCoachMessage?.signature === coachSignature &&
+          Date.now() - lastCoachMessage.at < VOICE_DUPLICATE_GUIDANCE_COOLDOWN_MS;
+
+        if (!isDuplicateGuidance) {
+          appendCoachMessage("assistant", learnerResponse.coach_message);
+        }
+        setVoiceSessionStatus("speaking");
+        if (!isDuplicateGuidance) {
+          await speakTextAndWait(
+            learnerResponse.coach_message,
+            equityMode.feedbackLanguage,
+            equityMode.coachVoice,
+          );
+          lastCoachMessageRef.current = {
+            at: Date.now(),
+            conversationStage: learnerResponse.conversation_stage,
+            signature: coachSignature,
+          };
+          lastCoachTurnAtRef.current = Date.now();
+
+          if (cancelled || voiceLoopGenerationRef.current !== generation) {
+            return;
+          }
+
+          await waitForCoachLoop(VOICE_POST_SPEAK_LISTEN_DELAY_MS);
+        } else {
+          setVoiceSessionStatus("listening");
+          await waitForCoachLoop(VOICE_RELISTEN_DELAY_MS);
+        }
 
         if (cancelled || voiceLoopGenerationRef.current !== generation) {
           return;

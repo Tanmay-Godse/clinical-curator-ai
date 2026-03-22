@@ -160,6 +160,10 @@ def _build_coach_system_prompt() -> str:
         "Speak directly to the learner in a calm, supportive tone. "
         "The coach should feel attentive and specific, not generic. "
         "Avoid canned encouragement and avoid repeating the same setup script on every turn. "
+        "If the latest turn already came from the assistant and there is no newer learner message, "
+        "assume you are waiting for the learner rather than delivering another lecture. "
+        "Do not restate the same correction verbatim on consecutive turns. "
+        "If you need to speak again, give one brief check-in, one follow-up question, or one fresh cue. "
         "Use the current stage objective and visible checks to make the coaching turn concrete. "
         "If coach_mode is hands_free_startup, greet the learner briefly, mention the current stage by name, "
         "and tell them exactly what to show or stabilize next. "
@@ -191,6 +195,23 @@ def _build_coach_user_content(
         for message in payload.messages
         if message.content.strip()
     ]
+    latest_user_message = next(
+        (
+            message["content"]
+            for message in reversed(conversation)
+            if message["role"] == "user"
+        ),
+        "",
+    )
+    latest_assistant_message = next(
+        (
+            message["content"]
+            for message in reversed(conversation)
+            if message["role"] == "assistant"
+        ),
+        "",
+    )
+    latest_turn_role = conversation[-1]["role"] if conversation else ""
     coach_mode = _determine_coach_mode(payload)
     context = {
         "procedure_title": procedure.title,
@@ -211,6 +232,12 @@ def _build_coach_user_content(
         "simulation_confirmation": payload.simulation_confirmation,
         "equity_mode": payload.equity_mode.model_dump(mode="json"),
         "conversation_history": conversation,
+        "latest_turn_role": latest_turn_role,
+        "latest_user_message": latest_user_message,
+        "latest_assistant_message": latest_assistant_message,
+        "awaiting_new_learner_turn": bool(
+            conversation and latest_turn_role == "assistant"
+        ),
         "response_rules": {
             "coach_message": "2 to 4 short sentences that can be spoken aloud naturally.",
             "plan_summary": "1 short summary sentence of the agreed learning plan.",
@@ -270,6 +297,14 @@ def _build_fallback_response(
         (message.content.strip() for message in reversed(payload.messages) if message.role == "user"),
         "",
     )
+    last_assistant_message = next(
+        (
+            message.content.strip()
+            for message in reversed(payload.messages)
+            if message.role == "assistant"
+        ),
+        "",
+    )
 
     if payload.audio_base64 and not last_user_message:
         return CoachChatResponse(
@@ -284,6 +319,25 @@ def _build_fallback_response(
             suggested_next_step="Send a short voice reply about what you want to improve, or type your goal in one sentence.",
             camera_observations=[],
             stage_focus=[stage.title, stage.objective],
+            learner_goal_summary="",
+        )
+
+    if not last_user_message and last_assistant_message:
+        first_check = stage.visible_checks[0] if stage.visible_checks else stage.objective
+        return CoachChatResponse(
+            conversation_stage="guiding",
+            coach_message=(
+                f"I am still with you on the {stage.title.lower()} stage, {learner_name}. "
+                f"Show {_normalize_focus_text(first_check)} again when you are ready, or ask one short question."
+            ),
+            plan_summary=(
+                f"Stay with the {stage.title.lower()} stage and wait for the learner's next move."
+            ),
+            suggested_next_step=(
+                f"Keep the field steady and clearly show {_normalize_focus_text(first_check)} for the next cue."
+            ),
+            camera_observations=[],
+            stage_focus=_clean_lines(stage.visible_checks)[:3] or [stage.title, stage.objective],
             learner_goal_summary="",
         )
 
