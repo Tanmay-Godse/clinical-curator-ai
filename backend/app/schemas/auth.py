@@ -2,6 +2,8 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
+AdminApprovalStatus = Literal["none", "pending", "rejected"]
+
 
 class AuthAccountPreview(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -10,6 +12,9 @@ class AuthAccountPreview(BaseModel):
     name: str
     username: str
     role: Literal["student", "admin"]
+    is_developer: bool = False
+    requested_role: Literal["admin"] | None = None
+    admin_approval_status: AdminApprovalStatus = "none"
     created_at: str
 
 
@@ -37,3 +42,9 @@ class UpdateAuthAccountRequest(BaseModel):
     username: str
     current_password: str
     new_password: str | None = None
+
+
+class ResolveAdminRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    developer_account_id: str

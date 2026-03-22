@@ -8,6 +8,7 @@ from uuid import uuid4
 from app.schemas.auth import (
     AuthAccountPreview,
     CreateAuthAccountRequest,
+    ResolveAdminRequest,
     SignInAuthRequest,
     UpdateAuthAccountRequest,
 )
@@ -16,6 +17,13 @@ AUTH_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "auth.db"
 CURRENT_PASSWORD_SCHEME = "pbkdf2_sha256"
 PASSWORD_SALT_BYTES = 16
 PASSWORD_PBKDF2_ITERATIONS = 310_000
+DEVELOPER_ACCOUNT_ID = "account-developer-team"
+DEVELOPER_ACCOUNT_NAME = "Developer Team"
+DEVELOPER_ACCOUNT_USERNAME = "developer@gmail.com"
+DEVELOPER_ACCOUNT_PASSWORD = "Qwerty@123"
+ADMIN_APPROVAL_PENDING = "pending"
+ADMIN_APPROVAL_NONE = "none"
+ADMIN_APPROVAL_REJECTED = "rejected"
 
 
 class AuthValidationError(ValueError):
@@ -31,6 +39,10 @@ class AuthAccountConflictError(RuntimeError):
 
 
 class AuthDuplicateDisplayNameError(RuntimeError):
+    pass
+
+
+class AuthPermissionError(PermissionError):
     pass
 
 
@@ -52,10 +64,19 @@ def create_auth_account(payload: CreateAuthAccountRequest) -> AuthAccountPreview
         raise AuthValidationError("Display name is required.")
 
     username = _validate_username(payload.username)
+    if username == DEVELOPER_ACCOUNT_USERNAME:
+        raise AuthAccountConflictError(
+            "That developer account is reserved and cannot be created from the UI."
+        )
     password = _validate_password(payload.password)
     created_at = _now_iso()
     account_id = f"account-{uuid4()}"
     normalized_display_name = _normalize_display_name(name)
+    requested_role = "admin" if payload.role == "admin" else None
+    stored_role = "student" if requested_role == "admin" else payload.role
+    admin_approval_status = (
+        ADMIN_APPROVAL_PENDING if requested_role == "admin" else ADMIN_APPROVAL_NONE
+    )
 
     with _connect() as connection:
         try:
@@ -71,8 +92,11 @@ def create_auth_account(payload: CreateAuthAccountRequest) -> AuthAccountPreview
                     password_salt,
                     password_scheme,
                     role,
+                    is_developer,
+                    requested_role,
+                    admin_approval_status,
                     created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     account_id,
@@ -86,7 +110,10 @@ def create_auth_account(payload: CreateAuthAccountRequest) -> AuthAccountPreview
                     ),
                     password_salt,
                     CURRENT_PASSWORD_SCHEME,
-                    payload.role,
+                    stored_role,
+                    0,
+                    requested_role,
+                    admin_approval_status,
                     created_at,
                 ),
             )
@@ -99,7 +126,10 @@ def create_auth_account(payload: CreateAuthAccountRequest) -> AuthAccountPreview
         id=account_id,
         name=name,
         username=username,
-        role=payload.role,
+        role=stored_role,
+        is_developer=False,
+        requested_role=requested_role,
+        admin_approval_status=admin_approval_status,
         created_at=created_at,
     )
 
@@ -135,11 +165,96 @@ def sign_in_auth_user(payload: SignInAuthRequest) -> AuthAccountPreview:
         _upgrade_password_hash(account.id, password)
 
     if payload.role and account.role != payload.role:
+        if (
+            payload.role == "admin"
+            and account.requested_role == "admin"
+            and account.admin_approval_status == ADMIN_APPROVAL_PENDING
+        ):
+            raise AuthAccountConflictError(
+                "Admin access is pending developer approval. Sign in as student until the developer account approves the request."
+            )
+        if (
+            payload.role == "admin"
+            and account.requested_role == "admin"
+            and account.admin_approval_status == ADMIN_APPROVAL_REJECTED
+        ):
+            raise AuthAccountConflictError(
+                "Admin access was not approved. Sign in as student or contact the developer account."
+            )
         raise AuthAccountConflictError(
             f"This account is registered as {account.role}. Switch roles or use a different account."
         )
 
     return account
+
+
+def list_pending_admin_requests(developer_account_id: str) -> list[AuthAccountPreview]:
+    developer = _resolve_account_by_id(developer_account_id)
+    if developer is None:
+        raise AuthAccountNotFoundError(
+            f"Developer account '{developer_account_id}' was not found."
+        )
+    if not developer.is_developer:
+        raise AuthPermissionError(
+            "Only the fixed developer account can review admin access requests."
+        )
+
+    with _connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT id, name, username, role, is_developer, requested_role,
+                   admin_approval_status, created_at
+            FROM auth_accounts
+            WHERE requested_role = 'admin' AND admin_approval_status = 'pending'
+            ORDER BY created_at ASC
+            """
+        ).fetchall()
+
+    return [_row_to_preview(row) for row in rows]
+
+
+def resolve_admin_request(
+    *,
+    target_account_id: str,
+    payload: ResolveAdminRequest,
+    approved: bool,
+) -> AuthAccountPreview:
+    developer = _resolve_account_by_id(payload.developer_account_id)
+    if developer is None:
+        raise AuthAccountNotFoundError(
+            f"Developer account '{payload.developer_account_id}' was not found."
+        )
+    if not developer.is_developer:
+        raise AuthPermissionError(
+            "Only the fixed developer account can review admin access requests."
+        )
+
+    target_account = _resolve_account_by_id(target_account_id)
+    if target_account is None:
+        raise AuthAccountNotFoundError(f"Account '{target_account_id}' was not found.")
+    if target_account.is_developer:
+        raise AuthPermissionError("The fixed developer account cannot be changed here.")
+    if target_account.requested_role != "admin":
+        raise AuthValidationError("That account does not have an admin access request.")
+
+    next_role = "admin" if approved else "student"
+    next_requested_role = None if approved else "admin"
+    next_status = ADMIN_APPROVAL_NONE if approved else ADMIN_APPROVAL_REJECTED
+
+    with _connect() as connection:
+        connection.execute(
+            """
+            UPDATE auth_accounts
+            SET role = ?, requested_role = ?, admin_approval_status = ?
+            WHERE id = ?
+            """,
+            (next_role, next_requested_role, next_status, target_account_id),
+        )
+
+    updated = _resolve_account_by_id(target_account_id)
+    if updated is None:
+        raise AuthAccountNotFoundError(f"Account '{target_account_id}' was not found.")
+    return updated
 
 
 def update_auth_account(
@@ -149,12 +264,20 @@ def update_auth_account(
     account = _resolve_account_by_id(account_id)
     if account is None:
         raise AuthAccountNotFoundError(f"Account '{account_id}' was not found.")
+    if account.is_developer:
+        raise AuthPermissionError(
+            "The fixed developer account is managed outside the learner profile editor."
+        )
 
     name = payload.name.strip()
     if not name:
         raise AuthValidationError("Display name is required.")
 
     username = _validate_username(payload.username)
+    if username == DEVELOPER_ACCOUNT_USERNAME:
+        raise AuthAccountConflictError(
+            "That developer account email is reserved and cannot be assigned here."
+        )
     current_password = _validate_password(payload.current_password)
     new_password = (
         _validate_password(payload.new_password)
@@ -243,7 +366,8 @@ def _resolve_account(identifier: str) -> AuthAccountPreview | None:
     with _connect() as connection:
         username_match = connection.execute(
             """
-            SELECT id, name, username, role, created_at
+            SELECT id, name, username, role, is_developer, requested_role,
+                   admin_approval_status, created_at
             FROM auth_accounts
             WHERE username = ?
             """,
@@ -252,7 +376,8 @@ def _resolve_account(identifier: str) -> AuthAccountPreview | None:
 
         display_name_matches = connection.execute(
             """
-            SELECT id, name, username, role, created_at
+            SELECT id, name, username, role, is_developer, requested_role,
+                   admin_approval_status, created_at
             FROM auth_accounts
             WHERE normalized_display_name = ?
             ORDER BY created_at ASC
@@ -276,7 +401,8 @@ def _resolve_account_by_id(account_id: str) -> AuthAccountPreview | None:
     with _connect() as connection:
         row = connection.execute(
             """
-            SELECT id, name, username, role, created_at
+            SELECT id, name, username, role, is_developer, requested_role,
+                   admin_approval_status, created_at
             FROM auth_accounts
             WHERE id = ?
             """,
@@ -372,6 +498,20 @@ def _ensure_store() -> None:
             connection.execute(
                 "ALTER TABLE auth_accounts ADD COLUMN password_scheme TEXT NOT NULL DEFAULT 'sha256'"
             )
+        if "is_developer" not in existing_columns:
+            connection.execute(
+                "ALTER TABLE auth_accounts ADD COLUMN is_developer INTEGER NOT NULL DEFAULT 0"
+            )
+        if "requested_role" not in existing_columns:
+            connection.execute(
+                "ALTER TABLE auth_accounts ADD COLUMN requested_role TEXT"
+            )
+        if "admin_approval_status" not in existing_columns:
+            connection.execute(
+                f"ALTER TABLE auth_accounts ADD COLUMN admin_approval_status TEXT NOT NULL DEFAULT '{ADMIN_APPROVAL_NONE}'"
+            )
+
+        _ensure_developer_account(connection)
 
 
 def _row_to_preview(row: sqlite3.Row) -> AuthAccountPreview:
@@ -380,6 +520,11 @@ def _row_to_preview(row: sqlite3.Row) -> AuthAccountPreview:
         name=str(row["name"]),
         username=str(row["username"]),
         role=str(row["role"]),
+        is_developer=bool(row["is_developer"]),
+        requested_role=(
+            str(row["requested_role"]) if row["requested_role"] is not None else None
+        ),
+        admin_approval_status=str(row["admin_approval_status"] or ADMIN_APPROVAL_NONE),
         created_at=str(row["created_at"]),
     )
 
@@ -410,6 +555,91 @@ def _validate_username(username: str) -> str:
             "Username can use letters, numbers, periods, underscores, hyphens, and @."
         )
     return normalized
+
+
+def _ensure_developer_account(connection: sqlite3.Connection) -> None:
+    existing = connection.execute(
+        """
+        SELECT id
+        FROM auth_accounts
+        WHERE username = ?
+        """,
+        (DEVELOPER_ACCOUNT_USERNAME,),
+    ).fetchone()
+
+    password_salt = _generate_password_salt()
+    password_hash = _hash_password(
+        password=DEVELOPER_ACCOUNT_PASSWORD,
+        salt=password_salt,
+        scheme=CURRENT_PASSWORD_SCHEME,
+    )
+    created_at = _now_iso()
+
+    connection.execute(
+        """
+        UPDATE auth_accounts
+        SET is_developer = 0
+        WHERE username <> ?
+        """,
+        (DEVELOPER_ACCOUNT_USERNAME,),
+    )
+
+    if existing is None:
+        connection.execute(
+            """
+            INSERT INTO auth_accounts (
+                id,
+                name,
+                username,
+                normalized_display_name,
+                password_hash,
+                password_salt,
+                password_scheme,
+                role,
+                is_developer,
+                requested_role,
+                admin_approval_status,
+                created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                DEVELOPER_ACCOUNT_ID,
+                DEVELOPER_ACCOUNT_NAME,
+                DEVELOPER_ACCOUNT_USERNAME,
+                _normalize_display_name(DEVELOPER_ACCOUNT_NAME),
+                password_hash,
+                password_salt,
+                CURRENT_PASSWORD_SCHEME,
+                "admin",
+                1,
+                None,
+                ADMIN_APPROVAL_NONE,
+                created_at,
+            ),
+        )
+        return
+
+    connection.execute(
+        """
+        UPDATE auth_accounts
+        SET id = ?, name = ?, username = ?, normalized_display_name = ?,
+            password_hash = ?, password_salt = ?, password_scheme = ?, role = ?,
+            is_developer = 1, requested_role = NULL, admin_approval_status = ?
+        WHERE username = ?
+        """,
+        (
+            DEVELOPER_ACCOUNT_ID,
+            DEVELOPER_ACCOUNT_NAME,
+            DEVELOPER_ACCOUNT_USERNAME,
+            _normalize_display_name(DEVELOPER_ACCOUNT_NAME),
+            password_hash,
+            password_salt,
+            CURRENT_PASSWORD_SCHEME,
+            "admin",
+            ADMIN_APPROVAL_NONE,
+            DEVELOPER_ACCOUNT_USERNAME,
+        ),
+    )
 
 
 def _validate_password(password: str) -> str:

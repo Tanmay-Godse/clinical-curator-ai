@@ -174,11 +174,13 @@ export default function AdminReviewPage() {
         sidebarItems={buildSharedSidebarItems({
           active: "admin",
           reviewHref: DEFAULT_TRAINING_HREF,
+          isDeveloper: false,
           userRole: "admin",
         })}
         statusPill={{ icon: "analytics", label: "validating access" }}
         topItems={buildSharedTopItems({
           reviewHref: DEFAULT_TRAINING_HREF,
+          isDeveloper: false,
           userRole: "admin",
         })}
       >
@@ -198,19 +200,22 @@ export default function AdminReviewPage() {
     <AppFrame
       brandSubtitle="Human validation workflow"
       footerPrimaryAction={{
-        href: DEFAULT_TRAINING_HREF,
-        icon: "play",
-        label: "Open Student View",
+        href: authUser.isDeveloper ? "/developer/approvals" : DEFAULT_TRAINING_HREF,
+        icon: authUser.isDeveloper ? "review" : "play",
+        label: authUser.isDeveloper ? "Open Approvals" : "Open Student View",
         strong: true,
       }}
       footerSecondaryActions={[
-        { href: "/dashboard", icon: "dashboard", label: "Dashboard" },
+        ...(authUser.isDeveloper
+          ? []
+          : [{ href: "/dashboard", icon: "dashboard" as const, label: "Dashboard" as const }]),
         { icon: "logout", label: "Logout", onClick: handleLogout },
       ]}
       pageTitle="Admin Queue"
       sidebarItems={buildSharedSidebarItems({
         active: "admin",
         reviewHref: DEFAULT_TRAINING_HREF,
+        isDeveloper: authUser.isDeveloper,
         userRole: authUser.role,
       })}
       statusPill={{
@@ -218,11 +223,18 @@ export default function AdminReviewPage() {
         label: `${summary.pending} pending · ${summary.resolved} resolved`,
       }}
       topActions={[
-        { href: "/dashboard", label: "Dashboard" },
-        { href: DEFAULT_TRAINING_HREF, label: "Student View", strong: true },
+        ...(authUser.isDeveloper
+          ? [{ href: "/developer/approvals", label: "Approvals" }]
+          : [{ href: "/dashboard", label: "Dashboard" }]),
+        {
+          href: authUser.isDeveloper ? "/developer/approvals" : DEFAULT_TRAINING_HREF,
+          label: authUser.isDeveloper ? "Approvals" : "Student View",
+          strong: true,
+        },
       ]}
       topItems={buildSharedTopItems({
         reviewHref: DEFAULT_TRAINING_HREF,
+        isDeveloper: authUser.isDeveloper,
         userRole: authUser.role,
       })}
       userName={authUser.name}

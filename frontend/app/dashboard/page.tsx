@@ -375,6 +375,11 @@ export default function DashboardPage() {
   useEffect(() => {
     if (hydrated && !user) {
       router.replace("/login?role=student&next=%2Fdashboard");
+      return;
+    }
+
+    if (hydrated && user?.isDeveloper) {
+      router.replace("/developer/approvals");
     }
   }, [hydrated, router, user]);
 
@@ -433,11 +438,12 @@ export default function DashboardPage() {
         { icon: "logout", label: "Logout", onClick: handleLogout },
       ]}
       pageTitle="Training Dashboard"
-      sidebarItems={buildSharedSidebarItems({
-        active: "dashboard",
-        reviewHref: snapshot.latestReviewHref,
-        userRole: user?.role ?? null,
-      })}
+        sidebarItems={buildSharedSidebarItems({
+          active: "dashboard",
+          reviewHref: snapshot.latestReviewHref,
+          isDeveloper: user?.isDeveloper === true,
+          userRole: user?.role ?? null,
+        })}
       statusPill={{
         icon: "streak",
         label: snapshot.streakDays > 0 ? `${snapshot.streakDays} day streak` : "ready to train",
@@ -450,6 +456,7 @@ export default function DashboardPage() {
         { href: DEFAULT_TRAINING_HREF, label: "Start Session", strong: true },
       ]}
       topItems={buildSharedTopItems({
+        isDeveloper: user?.isDeveloper === true,
         reviewHref: snapshot.latestReviewHref,
         userRole: user?.role ?? null,
       })}

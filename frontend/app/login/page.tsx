@@ -16,15 +16,20 @@ import type { AuthUser, UserRole } from "@/lib/types";
 type AuthStep = "identify" | "sign-in" | "create-account";
 
 type PreviewedAccount = {
+  adminApprovalStatus: AuthUser["adminApprovalStatus"];
+  isDeveloper: boolean;
   name: string;
   role: UserRole;
+  requestedRole?: "admin" | null;
   username: string;
 };
 
-function getDefaultDestination(role: UserRole) {
-  return role === "admin"
-    ? "/admin/reviews"
-    : "/dashboard";
+function getDefaultDestination(account: Pick<AuthUser, "isDeveloper" | "role">) {
+  if (account.isDeveloper) {
+    return "/developer/approvals";
+  }
+
+  return account.role === "admin" ? "/admin/reviews" : "/dashboard";
 }
 
 function suggestUsername(identifier: string) {
@@ -63,16 +68,16 @@ function LoginPageContent() {
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function resolveDestination(targetRole: UserRole) {
-    if (requestedRole && targetRole === requestedRole) {
-      return nextPath ?? getDefaultDestination(targetRole);
+  function resolveDestination(targetAccount: Pick<AuthUser, "isDeveloper" | "role">) {
+    if (requestedRole && targetAccount.role === requestedRole) {
+      return nextPath ?? getDefaultDestination(targetAccount);
     }
 
     if (!requestedRole && nextPath) {
       return nextPath;
     }
 
-    return getDefaultDestination(targetRole);
+    return getDefaultDestination(targetAccount);
   }
 
   useEffect(() => {
@@ -130,7 +135,7 @@ function LoginPageContent() {
         password,
       });
       setCurrentUser(user);
-      router.push(resolveDestination(user.role));
+      router.push(resolveDestination(user));
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -161,7 +166,7 @@ function LoginPageContent() {
         role,
       });
       setCurrentUser(user);
-      router.push(resolveDestination(user.role));
+      router.push(resolveDestination(user));
     } catch (submitError) {
       setError(
         submitError instanceof Error
@@ -178,7 +183,7 @@ function LoginPageContent() {
       return;
     }
 
-    router.push(resolveDestination(currentUser.role));
+    router.push(resolveDestination(currentUser));
   }
 
   function handleSignOut() {
@@ -217,9 +222,9 @@ function LoginPageContent() {
             <div className="auth-login-brand">
               <div className="brand">
                 <span className="brand-mark">AC</span>
-                <span>AI Clinical Skills Coach</span>
+                <span>Clinical Curator</span>
               </div>
-              <span className="pill">SQLite-backed auth</span>
+              <span className="pill">Workspace sign-in</span>
             </div>
 
             <div className="auth-stage-copy">
@@ -234,7 +239,7 @@ function LoginPageContent() {
               </span>
               <span className="pill">
                 {requestedRole
-                  ? resolveDestination(requestedRole)
+                  ? resolveDestination({ isDeveloper: false, role: requestedRole })
                   : "match workspace after sign-in"}
               </span>
             </div>
@@ -244,12 +249,19 @@ function LoginPageContent() {
                 <div className="feedback-header">
                   <strong>Current local session</strong>
                   <span className="pill">
-                    {currentUser.name} · {currentUser.role}
+                    {currentUser.name} · {currentUser.isDeveloper ? "developer" : currentUser.role}
                   </span>
                 </div>
                 <p className="feedback-copy" style={{ marginTop: 12 }}>
                   Signed in as <strong>{currentUser.username}</strong>.
                 </p>
+                {currentUser.requestedRole === "admin" &&
+                currentUser.adminApprovalStatus === "pending" ? (
+                  <p className="feedback-copy" style={{ marginTop: 12 }}>
+                    Admin access is pending developer approval. This account can keep using
+                    the student workspace until the request is approved.
+                  </p>
+                ) : null}
                 {requestedRoleMismatch ? (
                   <p className="feedback-copy" style={{ marginTop: 12 }}>
                     This link was opened for a {requestedRole} route, but your saved account
@@ -312,11 +324,24 @@ function LoginPageContent() {
                           <span className="metric-label">Account found</span>
                           <strong>{previewedAccount.name}</strong>
                         </div>
-                        <span className="pill">{previewedAccount.role}</span>
+                        <span className="pill">
+                          {previewedAccount.isDeveloper
+                            ? "developer"
+                            : previewedAccount.role}
+                        </span>
                       </div>
                       <p className="panel-copy">
                         Username: <strong>{previewedAccount.username}</strong>
                       </p>
+                      {previewedAccount.requestedRole === "admin" &&
+                      previewedAccount.adminApprovalStatus === "pending" ? (
+                        <p className="panel-copy" style={{ marginTop: 12 }}>
+                          Admin reviewer access is pending approval from
+                          {" "}
+                          <strong>developer@gmail.com</strong>. Until then, this account
+                          signs in as a student.
+                        </p>
+                      ) : null}
                     </div>
 
                     <form className="auth-form" onSubmit={(event) => void handleSignIn(event)}>
@@ -358,7 +383,9 @@ function LoginPageContent() {
                           <span className="metric-label">Account setup</span>
                           <strong>New workspace account</strong>
                         </div>
-                        <span className="pill">{role}</span>
+                        <span className="pill">
+                          {role === "admin" ? "admin request" : role}
+                        </span>
                       </div>
                       <p className="panel-copy">
                         This identifier was not found, so the next step is to create a
@@ -376,6 +403,21 @@ function LoginPageContent() {
                         <option value="admin">Admin reviewer</option>
                       </select>
                     </label>
+
+                    {role === "admin" ? (
+                      <div className="feedback-block">
+                        <div className="feedback-header">
+                          <strong>Admin reviewer approval</strong>
+                          <span className="pill">developer required</span>
+                        </div>
+                        <p className="feedback-copy" style={{ marginTop: 12 }}>
+                          Admin requests are reviewed by the fixed developer account
+                          {" "}
+                          <strong>developer@gmail.com</strong>. Until approved, this new
+                          account continues in the student workspace.
+                        </p>
+                      </div>
+                    ) : null}
 
                     <label className="field-label">
                       Display name
@@ -467,7 +509,7 @@ export default function LoginPage() {
             <div className="empty-state">
               <h1 className="review-title">Loading login</h1>
               <p className="review-subtle">
-                Preparing the step-by-step workspace account flow.
+                Preparing your workspace sign-in.
               </p>
             </div>
           </div>

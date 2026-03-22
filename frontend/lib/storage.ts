@@ -193,6 +193,9 @@ function toAuthUser(account: PersistedAuthAccount): AuthUser {
     name: account.name,
     username: account.username,
     role: account.role,
+    isDeveloper: account.isDeveloper,
+    requestedRole: account.requestedRole ?? null,
+    adminApprovalStatus: account.adminApprovalStatus,
     createdAt: new Date().toISOString(),
   };
 }
@@ -394,12 +397,22 @@ export async function updateAuthUserProfile(
     name: account.name,
     username: account.username,
     role: account.role,
+    isDeveloper: account.isDeveloper,
+    requestedRole: account.requestedRole ?? null,
+    adminApprovalStatus: account.adminApprovalStatus,
   });
 }
 
 export async function previewAuthAccount(
   identifier: string,
-): Promise<{ name: string; role: AuthUser["role"]; username: string } | null> {
+): Promise<{
+  name: string;
+  role: AuthUser["role"];
+  username: string;
+  isDeveloper: boolean;
+  requestedRole?: "admin" | null;
+  adminApprovalStatus: AuthUser["adminApprovalStatus"];
+} | null> {
   ensureBrowserStorage();
 
   const trimmedIdentifier = identifier.trim();
@@ -417,6 +430,9 @@ export async function previewAuthAccount(
     name: account.name,
     role: account.role,
     username: account.username,
+    isDeveloper: account.isDeveloper,
+    requestedRole: account.requestedRole ?? null,
+    adminApprovalStatus: account.adminApprovalStatus,
   };
 }
 
@@ -457,6 +473,13 @@ export function getAuthUser(): AuthUser | null {
           ? parsed.username
           : normalizeUsername(parsed.name),
       role: parsed.role,
+      isDeveloper: parsed.isDeveloper === true,
+      requestedRole: parsed.requestedRole === "admin" ? "admin" : null,
+      adminApprovalStatus:
+        parsed.adminApprovalStatus === "pending" ||
+        parsed.adminApprovalStatus === "rejected"
+          ? parsed.adminApprovalStatus
+          : "none",
       createdAt: parsed.createdAt,
     };
   } catch {

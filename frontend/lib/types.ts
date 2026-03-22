@@ -2,6 +2,7 @@ export type StepStatus = "pass" | "retry" | "unclear" | "unsafe";
 export type SkillLevel = "beginner" | "intermediate";
 export type CalibrationMode = "corners" | "guide";
 export type UserRole = "student" | "admin";
+export type AdminApprovalStatus = "none" | "pending" | "rejected";
 export type SafetyGateStatus = "cleared" | "blocked" | "needs_human_review";
 export type ReviewCaseStatus = "pending" | "resolved";
 export type AuthMode = "sign-in" | "create-account";
@@ -302,6 +303,9 @@ export type AuthUser = {
   name: string;
   username: string;
   role: UserRole;
+  isDeveloper: boolean;
+  requestedRole?: "admin" | null;
+  adminApprovalStatus: AdminApprovalStatus;
   createdAt: string;
 };
 
@@ -311,6 +315,9 @@ export type AuthAccount = {
   username: string;
   passwordHash: string;
   role: UserRole;
+  isDeveloper?: boolean;
+  requestedRole?: "admin" | null;
+  adminApprovalStatus?: AdminApprovalStatus;
   createdAt: string;
 };
 
@@ -332,6 +339,10 @@ export type UpdateAuthAccountInput = {
   username: string;
   currentPassword: string;
   newPassword?: string;
+};
+
+export type AdminRequestDecisionInput = {
+  developerAccountId: string;
 };
 
 export type ReviewCase = {

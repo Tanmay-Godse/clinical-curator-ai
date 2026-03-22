@@ -266,6 +266,15 @@ export default function LibraryPage() {
   const [procedureError, setProcedureError] = useState<string | null>(null);
 
   useEffect(() => {
+    if (hydrated && user?.isDeveloper) {
+      router.replace("/developer/approvals");
+      return;
+    }
+
+    if (!hydrated) {
+      return;
+    }
+
     let cancelled = false;
 
     async function loadProcedure() {
@@ -294,7 +303,7 @@ export default function LibraryPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [hydrated, router, user?.isDeveloper]);
 
   const latestReviewHref = useMemo(() => {
     const latestSession = sessions[0];
@@ -376,6 +385,7 @@ export default function LibraryPage() {
       pageTitle="Library"
       sidebarItems={buildSharedSidebarItems({
         active: "library",
+        isDeveloper: user?.isDeveloper === true,
         reviewHref: latestReviewHref,
         userRole: user?.role ?? null,
       })}

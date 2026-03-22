@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.schemas.auth import (
     AuthAccountPreview,
     CreateAuthAccountRequest,
+    ResolveAdminRequest,
     SignInAuthRequest,
     UpdateAuthAccountRequest,
 )
@@ -11,6 +12,7 @@ from app.services.auth_service import (
     AuthAccountConflictError,
     AuthAccountNotFoundError,
     AuthDuplicateDisplayNameError,
+    AuthPermissionError,
     AuthValidationError,
 )
 
@@ -72,5 +74,65 @@ def update_auth_account(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except AuthAccountConflictError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AuthPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AuthValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/auth/admin-requests", response_model=list[AuthAccountPreview])
+def list_pending_admin_requests(
+    developer_account_id: str = Query(min_length=3),
+) -> list[AuthAccountPreview]:
+    try:
+        return auth_service.list_pending_admin_requests(developer_account_id)
+    except AuthAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AuthValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/auth/admin-requests/{account_id}/approve",
+    response_model=AuthAccountPreview,
+)
+def approve_admin_request(
+    account_id: str,
+    payload: ResolveAdminRequest,
+) -> AuthAccountPreview:
+    try:
+        return auth_service.resolve_admin_request(
+            target_account_id=account_id,
+            payload=payload,
+            approved=True,
+        )
+    except AuthAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AuthValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.post(
+    "/auth/admin-requests/{account_id}/reject",
+    response_model=AuthAccountPreview,
+)
+def reject_admin_request(
+    account_id: str,
+    payload: ResolveAdminRequest,
+) -> AuthAccountPreview:
+    try:
+        return auth_service.resolve_admin_request(
+            target_account_id=account_id,
+            payload=payload,
+            approved=False,
+        )
+    except AuthAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthPermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except AuthValidationError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

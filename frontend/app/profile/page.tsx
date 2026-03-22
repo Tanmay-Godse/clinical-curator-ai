@@ -112,23 +112,32 @@ export default function ProfilePage() {
     <AppFrame
       brandSubtitle="Workspace profile"
       footerPrimaryAction={{
-        href: DEFAULT_TRAINING_HREF,
-        icon: "play",
-        label: "Start Session",
+        href: user.isDeveloper ? "/developer/approvals" : DEFAULT_TRAINING_HREF,
+        icon: user.isDeveloper ? "review" : "play",
+        label: user.isDeveloper ? "Open Approvals" : "Start Session",
         strong: true,
       }}
       footerSecondaryActions={[
-        { href: "/dashboard", icon: "dashboard", label: "Dashboard" },
+        ...(user.isDeveloper
+          ? [{ href: "/admin/reviews", icon: "analytics" as const, label: "Admin Queue" as const }]
+          : [{ href: "/dashboard", icon: "dashboard" as const, label: "Dashboard" as const }]),
         { icon: "logout", label: "Logout", onClick: handleLogout },
       ]}
       pageTitle="Profile"
       sidebarItems={buildSharedSidebarItems({
+        isDeveloper: user.isDeveloper,
         reviewHref: latestReviewHref,
         userRole: user.role,
       })}
       topActions={[
-        { href: latestReviewHref, label: hasSavedSession ? "Latest Review" : "Open Trainer" },
-        { href: DEFAULT_TRAINING_HREF, label: "Live Session", strong: true },
+        ...(user.isDeveloper
+          ? [{ href: "/admin/reviews", label: "Admin Queue" }]
+          : [{ href: latestReviewHref, label: hasSavedSession ? "Latest Review" : "Open Trainer" }]),
+        {
+          href: user.isDeveloper ? "/developer/approvals" : DEFAULT_TRAINING_HREF,
+          label: user.isDeveloper ? "Approvals" : "Live Session",
+          strong: true,
+        },
       ]}
       userName={user.name}
     >
@@ -142,7 +151,7 @@ export default function ProfilePage() {
           </p>
         </div>
         <div className="dashboard-hero-meta">
-          <span>{user.role}</span>
+          <span>{user.isDeveloper ? "developer" : user.role}</span>
           <span>{user.username}</span>
         </div>
       </section>
@@ -174,6 +183,18 @@ export default function ProfilePage() {
                 <h2>Workspace details</h2>
               </div>
             </div>
+            {user.isDeveloper ? (
+              <div className="feedback-block">
+                <div className="feedback-header">
+                  <strong>Fixed developer account</strong>
+                  <span className="pill">managed</span>
+                </div>
+                <p className="feedback-copy" style={{ marginTop: 12 }}>
+                  This account stays fixed so the developer approval workflow always
+                  uses the same shared login.
+                </p>
+              </div>
+            ) : (
             <form onSubmit={(event) => void handleSaveProfile(event)}>
               <div className="inline-form-row">
                 <label className="field-label">
@@ -262,6 +283,7 @@ export default function ProfilePage() {
                 </button>
               </div>
             </form>
+            )}
           </article>
         </div>
 
@@ -274,11 +296,21 @@ export default function ProfilePage() {
               </div>
             </div>
             <div className="dashboard-frame-actions">
-              <Link className="dashboard-primary-button" href={DEFAULT_TRAINING_HREF}>
-                Start live session
+              <Link
+                className="dashboard-primary-button"
+                href={user.isDeveloper ? "/developer/approvals" : DEFAULT_TRAINING_HREF}
+              >
+                {user.isDeveloper ? "Open approvals" : "Start live session"}
               </Link>
-              <Link className="dashboard-action-pill" href={latestReviewHref}>
-                {hasSavedSession ? "Open latest review" : "Open trainer"}
+              <Link
+                className="dashboard-action-pill"
+                href={user.isDeveloper ? "/admin/reviews" : latestReviewHref}
+              >
+                {user.isDeveloper
+                  ? "Open admin queue"
+                  : hasSavedSession
+                    ? "Open latest review"
+                    : "Open trainer"}
               </Link>
             </div>
           </article>

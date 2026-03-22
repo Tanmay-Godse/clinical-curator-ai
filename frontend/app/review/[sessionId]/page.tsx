@@ -355,10 +355,12 @@ export default function ReviewPage() {
   const reviewHref = session ? `/review/${session.id}` : DEFAULT_TRAINING_HREF;
   const sharedSidebarItems = buildSharedSidebarItems({
     active: "review",
+    isDeveloper: authUser?.isDeveloper === true,
     reviewHref,
     userRole: authUser?.role ?? null,
   });
   const sharedTopItems = buildSharedTopItems({
+    isDeveloper: authUser?.isDeveloper === true,
     reviewHref,
     userRole: authUser?.role ?? null,
   });

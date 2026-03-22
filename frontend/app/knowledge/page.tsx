@@ -181,6 +181,11 @@ export default function KnowledgePage() {
       return;
     }
 
+    if (hydrated && user?.isDeveloper) {
+      router.replace("/developer/approvals");
+      return;
+    }
+
     if (user) {
       setProgress(readProgress(user.username));
     }
@@ -510,6 +515,7 @@ export default function KnowledgePage() {
       pageTitle="Knowledge Lab"
       sidebarItems={buildSharedSidebarItems({
         active: "knowledge",
+        isDeveloper: user.isDeveloper,
         reviewHref: latestReviewHref,
         userRole: user.role,
       })}

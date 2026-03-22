@@ -5,6 +5,7 @@ export const DEFAULT_TRAINING_HREF = "/train/simple-interrupted-suture";
 type SharedAppSection =
   | "admin"
   | "dashboard"
+  | "developer"
   | "knowledge"
   | "library"
   | "review"
@@ -12,15 +13,34 @@ type SharedAppSection =
 
 type BuildSharedAppItemsOptions = {
   active?: SharedAppSection;
+  isDeveloper?: boolean;
   reviewHref?: string;
   userRole?: "admin" | "student" | null;
 };
 
 export function buildSharedSidebarItems({
   active,
+  isDeveloper = false,
   reviewHref = DEFAULT_TRAINING_HREF,
   userRole,
 }: BuildSharedAppItemsOptions): AppFrameNavItem[] {
+  if (isDeveloper) {
+    return [
+      {
+        href: "/developer/approvals",
+        icon: "review",
+        label: "Approvals",
+        active: active === "developer",
+      },
+      {
+        href: "/admin/reviews",
+        icon: "analytics",
+        label: "Admin Queue",
+        active: active === "admin",
+      },
+    ];
+  }
+
   const items: Array<AppFrameNavItem & { key: SharedAppSection | "trainer" }> = [
     {
       href: "/dashboard",
@@ -62,7 +82,6 @@ export function buildSharedSidebarItems({
       key: "admin",
     });
   }
-
   return items.map(({ key, ...item }) => ({
     ...item,
     active: key === active,
@@ -70,9 +89,17 @@ export function buildSharedSidebarItems({
 }
 
 export function buildSharedTopItems({
+  isDeveloper = false,
   reviewHref = DEFAULT_TRAINING_HREF,
   userRole,
 }: Omit<BuildSharedAppItemsOptions, "active">) {
+  if (isDeveloper) {
+    return [
+      { href: "/developer/approvals", label: "Approvals" },
+      { href: "/admin/reviews", label: "Admin" },
+    ];
+  }
+
   const items = [
     { href: "/dashboard", label: "Dashboard" },
     { href: DEFAULT_TRAINING_HREF, label: "Live Session" },
@@ -86,6 +113,5 @@ export function buildSharedTopItems({
   if (userRole === "admin") {
     items.push({ href: "/admin/reviews", label: "Admin" });
   }
-
   return items;
 }

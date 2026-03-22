@@ -74,6 +74,148 @@ def test_auth_routes_create_preview_and_sign_in_with_sqlite(tmp_path, monkeypatc
     assert signed_in["username"] == "student01"
 
 
+def test_fixed_developer_account_is_seeded_and_reserved(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
+
+    preview_response = client.get(
+        "/api/v1/auth/accounts/preview",
+        params={"identifier": "developer@gmail.com"},
+    )
+
+    assert preview_response.status_code == 200
+    preview = preview_response.json()
+    assert preview["username"] == "developer@gmail.com"
+    assert preview["role"] == "admin"
+    assert preview["is_developer"] is True
+
+    sign_in_response = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "developer@gmail.com",
+            "password": "Qwerty@123",
+        },
+    )
+
+    assert sign_in_response.status_code == 200
+    assert sign_in_response.json()["is_developer"] is True
+
+    create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Imposter Dev",
+            "username": "developer@gmail.com",
+            "password": "supersecure",
+            "role": "admin",
+        },
+    )
+
+    assert create_response.status_code == 409
+    assert "reserved" in create_response.json()["detail"].lower()
+
+
+def test_admin_request_flow_requires_developer_approval(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
+
+    create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Reviewer Request",
+            "username": "reviewer.request",
+            "password": "supersecure",
+            "role": "admin",
+        },
+    )
+
+    assert create_response.status_code == 201
+    created = create_response.json()
+    assert created["role"] == "student"
+    assert created["requested_role"] == "admin"
+    assert created["admin_approval_status"] == "pending"
+
+    admin_sign_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "reviewer.request",
+            "password": "supersecure",
+            "role": "admin",
+        },
+    )
+    assert admin_sign_in.status_code == 409
+    assert "pending" in admin_sign_in.json()["detail"].lower()
+
+    student_sign_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "reviewer.request",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+    assert student_sign_in.status_code == 200
+
+    list_response = client.get(
+        "/api/v1/auth/admin-requests",
+        params={"developer_account_id": auth_service.DEVELOPER_ACCOUNT_ID},
+    )
+    assert list_response.status_code == 200
+    pending_requests = list_response.json()
+    assert len(pending_requests) == 1
+    assert pending_requests[0]["username"] == "reviewer.request"
+
+    approve_response = client.post(
+        f"/api/v1/auth/admin-requests/{created['id']}/approve",
+        json={"developer_account_id": auth_service.DEVELOPER_ACCOUNT_ID},
+    )
+    assert approve_response.status_code == 200
+    approved = approve_response.json()
+    assert approved["role"] == "admin"
+    assert approved["requested_role"] is None
+    assert approved["admin_approval_status"] == "none"
+
+    approved_sign_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "reviewer.request",
+            "password": "supersecure",
+            "role": "admin",
+        },
+    )
+    assert approved_sign_in.status_code == 200
+
+
+def test_only_developer_can_resolve_admin_requests(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
+
+    create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Second Reviewer",
+            "username": "second.reviewer",
+            "password": "supersecure",
+            "role": "admin",
+        },
+    )
+    assert create_response.status_code == 201
+    created = create_response.json()
+
+    student_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Student One",
+            "username": "student01",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+    assert student_response.status_code == 201
+
+    forbidden_response = client.post(
+        f"/api/v1/auth/admin-requests/{created['id']}/reject",
+        json={"developer_account_id": student_response.json()["id"]},
+    )
+    assert forbidden_response.status_code == 403
+
+
 def test_auth_preview_conflicts_on_duplicate_display_name(tmp_path, monkeypatch) -> None:
     monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
 

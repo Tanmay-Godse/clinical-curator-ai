@@ -1,4 +1,6 @@
 import type {
+  AdminApprovalStatus,
+  AdminRequestDecisionInput,
   AnalyzeFrameRequest,
   AnalyzeFrameResponse,
   CreateAuthAccountInput,
@@ -26,6 +28,9 @@ type AuthAccountApiResponse = {
   name: string;
   username: string;
   role: UserRole;
+  is_developer: boolean;
+  requested_role?: "admin" | null;
+  admin_approval_status: AdminApprovalStatus;
   created_at: string;
 };
 
@@ -34,6 +39,9 @@ export type PersistedAuthAccount = {
   name: string;
   username: string;
   role: UserRole;
+  isDeveloper: boolean;
+  requestedRole?: "admin" | null;
+  adminApprovalStatus: AdminApprovalStatus;
   createdAt: string;
 };
 
@@ -45,6 +53,9 @@ function toPersistedAuthAccount(
     name: response.name,
     username: response.username,
     role: response.role,
+    isDeveloper: response.is_developer,
+    requestedRole: response.requested_role ?? null,
+    adminApprovalStatus: response.admin_approval_status,
     createdAt: response.created_at,
   };
 }
@@ -169,6 +180,54 @@ export async function updatePersistedAuthAccount(
 
   const data = await readJson<AuthAccountApiResponse>(response);
   return toPersistedAuthAccount(data);
+}
+
+export async function listPendingAdminRequests(
+  developerAccountId: string,
+): Promise<PersistedAuthAccount[]> {
+  const params = new URLSearchParams({
+    developer_account_id: developerAccountId,
+  });
+  const response = await fetch(`${API_BASE_URL}/auth/admin-requests?${params}`, {
+    cache: "no-store",
+  });
+
+  const data = await readJson<AuthAccountApiResponse[]>(response);
+  return data.map(toPersistedAuthAccount);
+}
+
+async function resolveAdminRequest(
+  accountId: string,
+  path: "approve" | "reject",
+  payload: AdminRequestDecisionInput,
+): Promise<PersistedAuthAccount> {
+  const response = await fetch(`${API_BASE_URL}/auth/admin-requests/${accountId}/${path}`, {
+    body: JSON.stringify({
+      developer_account_id: payload.developerAccountId,
+    }),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  const data = await readJson<AuthAccountApiResponse>(response);
+  return toPersistedAuthAccount(data);
+}
+
+export async function approveAdminRequest(
+  accountId: string,
+  payload: AdminRequestDecisionInput,
+): Promise<PersistedAuthAccount> {
+  return resolveAdminRequest(accountId, "approve", payload);
+}
+
+export async function rejectAdminRequest(
+  accountId: string,
+  payload: AdminRequestDecisionInput,
+): Promise<PersistedAuthAccount> {
+  return resolveAdminRequest(accountId, "reject", payload);
 }
 
 export async function analyzeFrame(
