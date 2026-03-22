@@ -54,6 +54,7 @@ import type {
 
 const AUTO_COACH_INTERVAL_MS = 1_000;
 const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
+const COACH_CONVERSATION_WINDOW = 4;
 const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
 const VOICE_RECORDING_MIN_SPEECH_MS = 220;
 const VOICE_RECORDING_SILENCE_DURATION_MS = 800;
@@ -797,7 +798,9 @@ export default function TrainProcedurePage() {
       return;
     }
 
-    const capturedFrame = await cameraRef.current?.captureFrame();
+    const capturedFrame = await cameraRef.current?.captureFrame({
+      mode: "analysis",
+    });
 
     if (!capturedFrame) {
       setAnalyzeError(
@@ -968,7 +971,9 @@ export default function TrainProcedurePage() {
     try {
       const capturedFrame =
         includeImage && cameraReady && simulationConfirmed
-          ? await cameraRef.current?.captureFrame()
+          ? await cameraRef.current?.captureFrame({
+              mode: "coach",
+            })
           : null;
 
       const response = await coachChat({
@@ -1166,7 +1171,7 @@ export default function TrainProcedurePage() {
           );
 
           const proactiveResponse = await requestCoachTurn({
-            messages: coachMessagesRef.current.slice(-6),
+            messages: coachMessagesRef.current.slice(-COACH_CONVERSATION_WINDOW),
           });
 
           if (cancelled || voiceLoopGenerationRef.current !== generation) {
@@ -1313,7 +1318,7 @@ export default function TrainProcedurePage() {
         const learnerResponse = await requestCoachTurn({
           audioClip: learnerClip,
           includeImage: false,
-          messages: coachMessagesRef.current.slice(-6),
+          messages: coachMessagesRef.current.slice(-COACH_CONVERSATION_WINDOW),
         });
 
         if (cancelled || voiceLoopGenerationRef.current !== generation) {

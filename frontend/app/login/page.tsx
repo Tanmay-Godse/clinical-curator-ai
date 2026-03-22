@@ -9,6 +9,7 @@ import {
   createAuthAccount,
   getAuthUser,
   previewAuthAccount,
+  refreshAuthUser,
   signInAuthUser,
 } from "@/lib/storage";
 import type { AuthUser, UserRole } from "@/lib/types";
@@ -81,7 +82,31 @@ function LoginPageContent() {
   }
 
   useEffect(() => {
-    setCurrentUser(getAuthUser());
+    let cancelled = false;
+    const initialUser = getAuthUser();
+    setCurrentUser(initialUser);
+
+    if (!initialUser) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void refreshAuthUser()
+      .then((nextUser) => {
+        if (!cancelled) {
+          setCurrentUser(nextUser);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCurrentUser(initialUser);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const requestedRoleMismatch =
@@ -189,8 +214,10 @@ function LoginPageContent() {
   function handleSignOut() {
     clearAuthUser();
     setCurrentUser(null);
+    setPreviewedAccount(null);
     setError(null);
     setStep("identify");
+    setIdentifier("");
     setPassword("");
   }
 
@@ -255,6 +282,10 @@ function LoginPageContent() {
                 <p className="feedback-copy" style={{ marginTop: 12 }}>
                   Signed in as <strong>{currentUser.username}</strong>.
                 </p>
+                <p className="feedback-copy" style={{ marginTop: 12 }}>
+                  You can continue with this account, or sign in with another user
+                  below on the same device.
+                </p>
                 {currentUser.requestedRole === "admin" &&
                 currentUser.adminApprovalStatus === "pending" ? (
                   <p className="feedback-copy" style={{ marginTop: 12 }}>
@@ -277,214 +308,212 @@ function LoginPageContent() {
                   </button>
                 </div>
               </div>
-            ) : (
+            ) : null}
+
+            {error ? (
+              <div className="feedback-block">
+                <div className="feedback-header">
+                  <strong>Authentication issue</strong>
+                  <span className="status-badge status-unsafe">attention</span>
+                </div>
+                <p className="feedback-copy" style={{ marginTop: 12 }}>
+                  {error}
+                </p>
+              </div>
+            ) : null}
+
+            {step === "identify" ? (
+              <form className="auth-form" onSubmit={(event) => void handleIdentify(event)}>
+                <label className="field-label">
+                  Username or display name
+                  <input
+                    autoComplete="username"
+                    className="text-input"
+                    onChange={(event) => setIdentifier(event.target.value)}
+                    placeholder="student01, faculty.reviewer, or Student Name"
+                    required
+                    value={identifier}
+                  />
+                </label>
+
+                <p className="auth-helper-copy">
+                  We will first look for an existing workspace account. If none is found,
+                  the next screen becomes account creation automatically.
+                </p>
+
+                <button className="button-primary" disabled={isSubmitting} type="submit">
+                  {isSubmitting ? "Checking Account..." : "Continue"}
+                </button>
+              </form>
+            ) : null}
+
+            {step === "sign-in" && previewedAccount ? (
               <>
-                {error ? (
+                <div className="auth-account-preview">
+                  <div className="auth-account-header">
+                    <div>
+                      <span className="metric-label">Account found</span>
+                      <strong>{previewedAccount.name}</strong>
+                    </div>
+                    <span className="pill">
+                      {previewedAccount.isDeveloper
+                        ? "developer"
+                        : previewedAccount.role}
+                    </span>
+                  </div>
+                  <p className="panel-copy">
+                    Username: <strong>{previewedAccount.username}</strong>
+                  </p>
+                  {previewedAccount.requestedRole === "admin" &&
+                  previewedAccount.adminApprovalStatus === "pending" ? (
+                    <p className="panel-copy" style={{ marginTop: 12 }}>
+                      Admin reviewer access is pending approval from
+                      {" "}
+                      <strong>developer@gmail.com</strong>. Until then, this account
+                      signs in as a student.
+                    </p>
+                  ) : null}
+                </div>
+
+                <form className="auth-form" onSubmit={(event) => void handleSignIn(event)}>
+                  <label className="field-label">
+                    Password
+                    <input
+                      autoComplete="current-password"
+                      className="text-input"
+                      minLength={8}
+                      onChange={(event) => setPassword(event.target.value)}
+                      placeholder="Enter your password"
+                      required
+                      type="password"
+                      value={password}
+                    />
+                  </label>
+
+                  <div className="button-row">
+                    <button className="button-ghost" onClick={handleBack} type="button">
+                      Back
+                    </button>
+                    <button
+                      className="button-primary"
+                      disabled={isSubmitting}
+                      type="submit"
+                    >
+                      {isSubmitting ? "Signing In..." : "Continue"}
+                    </button>
+                  </div>
+                </form>
+              </>
+            ) : null}
+
+            {step === "create-account" ? (
+              <form className="auth-form" onSubmit={(event) => void handleCreateAccount(event)}>
+                <div className="auth-account-preview">
+                  <div className="auth-account-header">
+                    <div>
+                      <span className="metric-label">Account setup</span>
+                      <strong>New workspace account</strong>
+                    </div>
+                    <span className="pill">
+                      {role === "admin" ? "admin request" : role}
+                    </span>
+                  </div>
+                  <p className="panel-copy">
+                    This identifier was not found, so the next step is to create a
+                    persisted account for this workspace.
+                  </p>
+                </div>
+
+                <label className="field-label">
+                  Role
+                  <select
+                    onChange={(event) => setRole(event.target.value as UserRole)}
+                    value={role}
+                  >
+                    <option value="student">Student</option>
+                    <option value="admin">Admin reviewer</option>
+                  </select>
+                </label>
+
+                {role === "admin" ? (
                   <div className="feedback-block">
                     <div className="feedback-header">
-                      <strong>Authentication issue</strong>
-                      <span className="status-badge status-unsafe">attention</span>
+                      <strong>Admin reviewer approval</strong>
+                      <span className="pill">developer required</span>
                     </div>
                     <p className="feedback-copy" style={{ marginTop: 12 }}>
-                      {error}
+                      Admin requests are reviewed by the fixed developer account
+                      {" "}
+                      <strong>developer@gmail.com</strong>. Until approved, this new
+                      account continues in the student workspace.
                     </p>
                   </div>
                 ) : null}
 
-                {step === "identify" ? (
-                  <form className="auth-form" onSubmit={(event) => void handleIdentify(event)}>
-                    <label className="field-label">
-                      Username or display name
-                      <input
-                        autoComplete="username"
-                        className="text-input"
-                        onChange={(event) => setIdentifier(event.target.value)}
-                        placeholder="student01, faculty.reviewer, or Student Name"
-                        required
-                        value={identifier}
-                      />
-                    </label>
+                <label className="field-label">
+                  Display name
+                  <input
+                    autoComplete="name"
+                    className="text-input"
+                    onChange={(event) => setCreateName(event.target.value)}
+                    placeholder={role === "admin" ? "Faculty Reviewer" : "Student Name"}
+                    required
+                    value={createName}
+                  />
+                </label>
 
-                    <p className="auth-helper-copy">
-                      We will first look for an existing workspace account. If none is found,
-                      the next screen becomes account creation automatically.
-                    </p>
+                <label className="field-label">
+                  Username
+                  <input
+                    autoComplete="username"
+                    className="text-input"
+                    onChange={(event) => setCreateUsername(event.target.value)}
+                    placeholder="Choose a username"
+                    required
+                    value={createUsername}
+                  />
+                </label>
 
-                    <button className="button-primary" disabled={isSubmitting} type="submit">
-                      {isSubmitting ? "Checking Account..." : "Continue"}
-                    </button>
-                  </form>
-                ) : null}
+                <div className="inline-form-row">
+                  <label className="field-label">
+                    Password
+                    <input
+                      autoComplete="new-password"
+                      className="text-input"
+                      minLength={8}
+                      onChange={(event) => setCreatePassword(event.target.value)}
+                      placeholder="At least 8 characters"
+                      required
+                      type="password"
+                      value={createPassword}
+                    />
+                  </label>
 
-                {step === "sign-in" && previewedAccount ? (
-                  <>
-                    <div className="auth-account-preview">
-                      <div className="auth-account-header">
-                        <div>
-                          <span className="metric-label">Account found</span>
-                          <strong>{previewedAccount.name}</strong>
-                        </div>
-                        <span className="pill">
-                          {previewedAccount.isDeveloper
-                            ? "developer"
-                            : previewedAccount.role}
-                        </span>
-                      </div>
-                      <p className="panel-copy">
-                        Username: <strong>{previewedAccount.username}</strong>
-                      </p>
-                      {previewedAccount.requestedRole === "admin" &&
-                      previewedAccount.adminApprovalStatus === "pending" ? (
-                        <p className="panel-copy" style={{ marginTop: 12 }}>
-                          Admin reviewer access is pending approval from
-                          {" "}
-                          <strong>developer@gmail.com</strong>. Until then, this account
-                          signs in as a student.
-                        </p>
-                      ) : null}
-                    </div>
+                  <label className="field-label">
+                    Confirm password
+                    <input
+                      autoComplete="new-password"
+                      className="text-input"
+                      minLength={8}
+                      onChange={(event) => setConfirmPassword(event.target.value)}
+                      placeholder="Re-enter password"
+                      required
+                      type="password"
+                      value={confirmPassword}
+                    />
+                  </label>
+                </div>
 
-                    <form className="auth-form" onSubmit={(event) => void handleSignIn(event)}>
-                      <label className="field-label">
-                        Password
-                        <input
-                          autoComplete="current-password"
-                          className="text-input"
-                          minLength={8}
-                          onChange={(event) => setPassword(event.target.value)}
-                          placeholder="Enter your password"
-                          required
-                          type="password"
-                          value={password}
-                        />
-                      </label>
-
-                      <div className="button-row">
-                        <button className="button-ghost" onClick={handleBack} type="button">
-                          Back
-                        </button>
-                        <button
-                          className="button-primary"
-                          disabled={isSubmitting}
-                          type="submit"
-                        >
-                          {isSubmitting ? "Signing In..." : "Continue"}
-                        </button>
-                      </div>
-                    </form>
-                  </>
-                ) : null}
-
-                {step === "create-account" ? (
-                  <form className="auth-form" onSubmit={(event) => void handleCreateAccount(event)}>
-                    <div className="auth-account-preview">
-                      <div className="auth-account-header">
-                        <div>
-                          <span className="metric-label">Account setup</span>
-                          <strong>New workspace account</strong>
-                        </div>
-                        <span className="pill">
-                          {role === "admin" ? "admin request" : role}
-                        </span>
-                      </div>
-                      <p className="panel-copy">
-                        This identifier was not found, so the next step is to create a
-                        persisted account for this workspace.
-                      </p>
-                    </div>
-
-                    <label className="field-label">
-                      Role
-                      <select
-                        onChange={(event) => setRole(event.target.value as UserRole)}
-                        value={role}
-                      >
-                        <option value="student">Student</option>
-                        <option value="admin">Admin reviewer</option>
-                      </select>
-                    </label>
-
-                    {role === "admin" ? (
-                      <div className="feedback-block">
-                        <div className="feedback-header">
-                          <strong>Admin reviewer approval</strong>
-                          <span className="pill">developer required</span>
-                        </div>
-                        <p className="feedback-copy" style={{ marginTop: 12 }}>
-                          Admin requests are reviewed by the fixed developer account
-                          {" "}
-                          <strong>developer@gmail.com</strong>. Until approved, this new
-                          account continues in the student workspace.
-                        </p>
-                      </div>
-                    ) : null}
-
-                    <label className="field-label">
-                      Display name
-                      <input
-                        autoComplete="name"
-                        className="text-input"
-                        onChange={(event) => setCreateName(event.target.value)}
-                        placeholder={role === "admin" ? "Faculty Reviewer" : "Student Name"}
-                        required
-                        value={createName}
-                      />
-                    </label>
-
-                    <label className="field-label">
-                      Username
-                      <input
-                        autoComplete="username"
-                        className="text-input"
-                        onChange={(event) => setCreateUsername(event.target.value)}
-                        placeholder="Choose a username"
-                        required
-                        value={createUsername}
-                      />
-                    </label>
-
-                    <div className="inline-form-row">
-                      <label className="field-label">
-                        Password
-                        <input
-                          autoComplete="new-password"
-                          className="text-input"
-                          minLength={8}
-                          onChange={(event) => setCreatePassword(event.target.value)}
-                          placeholder="At least 8 characters"
-                          required
-                          type="password"
-                          value={createPassword}
-                        />
-                      </label>
-
-                      <label className="field-label">
-                        Confirm password
-                        <input
-                          autoComplete="new-password"
-                          className="text-input"
-                          minLength={8}
-                          onChange={(event) => setConfirmPassword(event.target.value)}
-                          placeholder="Re-enter password"
-                          required
-                          type="password"
-                          value={confirmPassword}
-                        />
-                      </label>
-                    </div>
-
-                    <div className="button-row">
-                      <button className="button-ghost" onClick={handleBack} type="button">
-                        Back
-                      </button>
-                      <button className="button-primary" disabled={isSubmitting} type="submit">
-                        {isSubmitting ? "Creating Account..." : "Create Account"}
-                      </button>
-                    </div>
-                  </form>
-                ) : null}
-              </>
-            )}
+                <div className="button-row">
+                  <button className="button-ghost" onClick={handleBack} type="button">
+                    Back
+                  </button>
+                  <button className="button-primary" disabled={isSubmitting} type="submit">
+                    {isSubmitting ? "Creating Account..." : "Create Account"}
+                  </button>
+                </div>
+              </form>
+            ) : null}
 
             <div className="auth-compact-footer">
               <p className="fine-print">

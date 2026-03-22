@@ -361,6 +361,32 @@ export async function signInAuthUser(input: LoginAuthInput): Promise<AuthUser> {
   return persistAuthUser(toAuthUser(account));
 }
 
+export async function refreshAuthUser(): Promise<AuthUser | null> {
+  ensureBrowserStorage();
+
+  const currentUser = getAuthUser();
+  if (!currentUser) {
+    return null;
+  }
+
+  const account = await previewPersistedAuthAccount(currentUser.username);
+  if (!account) {
+    clearAuthUser();
+    return null;
+  }
+
+  return persistAuthUser({
+    ...currentUser,
+    accountId: account.id,
+    name: account.name,
+    username: account.username,
+    role: account.role,
+    isDeveloper: account.isDeveloper,
+    requestedRole: account.requestedRole ?? null,
+    adminApprovalStatus: account.adminApprovalStatus,
+  });
+}
+
 export async function updateAuthUserProfile(
   input: UpdateAuthAccountInput,
 ): Promise<AuthUser> {

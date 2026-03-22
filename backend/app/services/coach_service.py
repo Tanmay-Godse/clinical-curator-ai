@@ -21,6 +21,9 @@ from app.services.ai_client import (
 )
 from app.services.procedure_loader import load_procedure, load_stage
 
+COACH_RESPONSE_MAX_TOKENS = 280
+COACH_HISTORY_WINDOW = 8
+
 
 def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
     procedure = load_procedure(payload.procedure_id)
@@ -69,7 +72,7 @@ def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
     try:
         response_data = send_json_message(
             model=settings.ai_coach_model,
-            max_tokens=settings.ai_coach_max_tokens,
+            max_tokens=min(settings.ai_coach_max_tokens, COACH_RESPONSE_MAX_TOKENS),
             system_prompt=_build_coach_system_prompt(),
             user_content=_build_coach_user_content(
                 payload=normalized_payload,
@@ -124,7 +127,7 @@ def _normalize_payload_with_transcript(
     next_messages = [
         *payload.messages,
         CoachChatMessage(role="user", content=transcript),
-    ][-12:]
+    ][-COACH_HISTORY_WINDOW:]
 
     normalized_payload = CoachChatRequest.model_validate(
         {

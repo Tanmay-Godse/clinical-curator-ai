@@ -11,6 +11,7 @@ import {
 } from "@/lib/appShell";
 import {
   clearAuthUser,
+  refreshAuthUser,
   updateAuthUserProfile,
 } from "@/lib/storage";
 import { useWorkspaceUser } from "@/lib/useWorkspaceUser";
@@ -42,11 +43,66 @@ export default function ProfilePage() {
     setUsername(user.username);
   }, [user]);
 
+  useEffect(() => {
+    if (!hydrated || !user) {
+      return;
+    }
+
+    let cancelled = false;
+
+    void refreshAuthUser()
+      .then((nextUser) => {
+        if (!cancelled && nextUser) {
+          sync();
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrated, sync, user]);
+
   const latestReviewHref = useMemo(() => {
     const latestSession = sessions[0];
     return latestSession ? `/review/${latestSession.id}` : DEFAULT_TRAINING_HREF;
   }, [sessions]);
   const hasSavedSession = sessions.length > 0;
+
+  const accessStatus = useMemo(() => {
+    if (!user || user.isDeveloper) {
+      return null;
+    }
+
+    if (user.role === "admin") {
+      return {
+        eyebrow: "Access Approved",
+        title: "Admin review access is active.",
+        copy:
+          "This account can open the admin review queue and resolve escalated cases.",
+      };
+    }
+
+    if (user.requestedRole === "admin" && user.adminApprovalStatus === "pending") {
+      return {
+        eyebrow: "Approval Pending",
+        title: "Waiting for developer approval.",
+        copy:
+          "Your admin access request is with developer@gmail.com. You can keep using the student workspace until approval comes through.",
+      };
+    }
+
+    if (user.requestedRole === "admin" && user.adminApprovalStatus === "rejected") {
+      return {
+        eyebrow: "Request Declined",
+        title: "Admin access was not approved.",
+        copy:
+          "This account stays in the student workspace. Ask the developer team if that needs to change.",
+      };
+    }
+
+    return null;
+  }, [user]);
 
   function handleLogout() {
     clearAuthUser();
@@ -288,6 +344,18 @@ export default function ProfilePage() {
         </div>
 
         <div className="dashboard-right-column">
+          {accessStatus ? (
+            <article className="dashboard-card dashboard-session-card">
+              <div className="dashboard-card-header">
+                <div>
+                  <span className="dashboard-card-eyebrow">{accessStatus.eyebrow}</span>
+                  <h2>{accessStatus.title}</h2>
+                </div>
+              </div>
+              <p className="panel-copy">{accessStatus.copy}</p>
+            </article>
+          ) : null}
+
           <article className="dashboard-card dashboard-session-card">
             <div className="dashboard-card-header">
               <div>

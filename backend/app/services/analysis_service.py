@@ -20,6 +20,8 @@ from app.services.scoring_service import (
     validate_overlay_target_ids,
 )
 
+ANALYSIS_RESPONSE_MAX_TOKENS = 900
+
 
 def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
     procedure = load_procedure(payload.procedure_id)
@@ -129,7 +131,7 @@ def request_stage_analysis(
 ) -> AnalysisDraft:
     response_data = send_json_message(
         model=settings.ai_analysis_model,
-        max_tokens=settings.ai_analysis_max_tokens,
+        max_tokens=min(settings.ai_analysis_max_tokens, ANALYSIS_RESPONSE_MAX_TOKENS),
         system_prompt=_build_analysis_system_prompt(),
         user_content=_build_analysis_user_content(
             payload=payload,

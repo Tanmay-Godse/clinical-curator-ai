@@ -21,6 +21,7 @@ NONCLINICAL_PERSON_PATTERN = re.compile(
     r"\b(person|human|face|upper body|body|hand|student|learner|bystander|casual indoor|home|living room|couch)\b",
     re.IGNORECASE,
 )
+SAFETY_GATE_MAX_RESPONSE_TOKENS = 220
 
 
 def evaluate_safety_gate(
@@ -57,7 +58,7 @@ def evaluate_safety_gate(
     try:
         response_data = send_json_message(
             model=settings.ai_analysis_model,
-            max_tokens=settings.ai_safety_max_tokens,
+            max_tokens=min(settings.ai_safety_max_tokens, SAFETY_GATE_MAX_RESPONSE_TOKENS),
             system_prompt=_build_safety_system_prompt(),
             user_content=_build_safety_user_content(
                 payload=payload,

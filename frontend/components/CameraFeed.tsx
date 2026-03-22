@@ -47,8 +47,12 @@ export type CapturedFrame = {
   height: number;
 };
 
+export type CaptureFrameMode = "analysis" | "coach";
+
 export type CameraFeedHandle = {
-  captureFrame: () => Promise<CapturedFrame | null>;
+  captureFrame: (options?: {
+    mode?: CaptureFrameMode;
+  }) => Promise<CapturedFrame | null>;
   startCamera: () => Promise<void>;
   hasLiveStream: () => boolean;
   stopCamera: (message?: string) => void;
@@ -394,7 +398,11 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
       teardownStream,
     ]);
 
-    const captureFrame = useCallback(async (): Promise<CapturedFrame | null> => {
+    const captureFrame = useCallback(async (
+      options?: {
+        mode?: CaptureFrameMode;
+      },
+    ): Promise<CapturedFrame | null> => {
       const video = videoRef.current;
       const canvas = canvasRef.current;
 
@@ -402,8 +410,23 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
         return null;
       }
 
-      const maxLongEdge = lowBandwidthMode ? 720 : 1200;
-      const imageQuality = lowBandwidthMode ? 0.62 : 0.86;
+      const captureMode = options?.mode ?? "analysis";
+      const maxLongEdge =
+        captureMode === "coach"
+          ? lowBandwidthMode
+            ? 448
+            : 640
+          : lowBandwidthMode
+            ? 640
+            : 960;
+      const imageQuality =
+        captureMode === "coach"
+          ? lowBandwidthMode
+            ? 0.4
+            : 0.5
+          : lowBandwidthMode
+            ? 0.56
+            : 0.72;
       const scale = Math.min(
         1,
         maxLongEdge / Math.max(video.videoWidth, video.videoHeight),
