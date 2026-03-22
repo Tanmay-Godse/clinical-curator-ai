@@ -2893,6 +2893,13 @@ img {
   font-size: 0.74rem;
 }
 
+.trainer-defaults-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 .trainer-session-action {
   display: inline-flex;
   align-items: center;

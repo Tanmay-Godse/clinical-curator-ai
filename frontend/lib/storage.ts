@@ -63,7 +63,7 @@ export function createDefaultEquityMode(): EquityModeSettings {
   return {
     enabled: false,
     feedbackLanguage: "en",
-    audioCoaching: false,
+    audioCoaching: true,
     coachVoice: "guide_female",
     lowBandwidthMode: false,
     cheapPhoneMode: false,
@@ -139,14 +139,19 @@ function normalizeSessionRecord(
     skillLevel: session.skillLevel,
     practiceSurface:
       typeof session.practiceSurface === "string" ? session.practiceSurface : undefined,
-    simulationConfirmed:
-      typeof session.simulationConfirmed === "boolean"
-        ? session.simulationConfirmed
-        : false,
+    simulationConfirmed: true,
     learnerFocus:
       typeof session.learnerFocus === "string" ? session.learnerFocus : undefined,
     calibration: session.calibration ?? createDefaultCalibration(),
-    equityMode,
+    equityMode: {
+      ...equityMode,
+      enabled: false,
+      feedbackLanguage: "en",
+      audioCoaching: true,
+      lowBandwidthMode: false,
+      cheapPhoneMode: false,
+      offlinePracticeLogging: true,
+    },
     events: session.events,
     offlinePracticeLogs: Array.isArray(session.offlinePracticeLogs)
       ? (session.offlinePracticeLogs as OfflinePracticeLog[])
@@ -531,7 +536,7 @@ export function createSession(
     procedureId,
     ownerUsername,
     skillLevel,
-    simulationConfirmed: false,
+    simulationConfirmed: true,
     calibration: createDefaultCalibration(),
     equityMode: createDefaultEquityMode(),
     events: [],

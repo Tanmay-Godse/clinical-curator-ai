@@ -91,7 +91,7 @@ export function VoiceCoachPanel({
           <p className="panel-copy" style={{ marginTop: 10 }}>
             {simulationConfirmed
               ? "Frame-aware coaching is ready."
-              : "Confirm simulation-only mode to enable grading."}
+              : "The demo keeps simulation-only mode active."}
           </p>
         </article>
 
@@ -101,7 +101,7 @@ export function VoiceCoachPanel({
           <p className="panel-copy" style={{ marginTop: 10 }}>
             {voiceChatEnabled
               ? "Coach replies play automatically and the mic reopens after each turn."
-              : "Turn on Audio coaching in Setup to enable the loop."}
+              : "The audio loop starts as soon as the camera is live."}
           </p>
         </article>
       </div>

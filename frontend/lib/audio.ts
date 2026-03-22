@@ -141,7 +141,7 @@ const VOICE_PRESET_CONFIG: Record<
   }
 > = {
   guide_female: {
-    preferBrowserFirst: true,
+    preferBrowserFirst: false,
     preferredGender: "female",
     pitch: 1.14,
     rate: 0.98,
@@ -162,7 +162,7 @@ const VOICE_PRESET_CONFIG: Record<
     ],
   },
   mentor_female: {
-    preferBrowserFirst: true,
+    preferBrowserFirst: false,
     preferredGender: "female",
     pitch: 1.02,
     rate: 0.92,
@@ -714,6 +714,16 @@ async function speakTextWithFallback(
 ): Promise<boolean> {
   stopSpeechPlayback();
 
+  const didPlayBackendAudio = await playBackendSpeech(
+    text,
+    language,
+    preset,
+    waitForCompletion,
+  );
+  if (didPlayBackendAudio) {
+    return true;
+  }
+
   if (shouldPreferBrowserSpeech(language, preset)) {
     const didPlayBrowserSpeech = await playBrowserSpeech(
       text,
@@ -724,16 +734,6 @@ async function speakTextWithFallback(
     if (didPlayBrowserSpeech) {
       return true;
     }
-  }
-
-  const didPlayBackendAudio = await playBackendSpeech(
-    text,
-    language,
-    preset,
-    waitForCompletion,
-  );
-  if (didPlayBackendAudio) {
-    return true;
   }
 
   if (!canUseSpeechSynthesis()) {
@@ -750,14 +750,6 @@ async function playBackendSpeech(
   waitForCompletion: boolean,
 ): Promise<boolean> {
   if (typeof window === "undefined") {
-    return false;
-  }
-
-  if (
-    canUseSpeechSynthesis() &&
-    language === "en" &&
-    (preset === "guide_female" || preset === "mentor_female")
-  ) {
     return false;
   }
 

@@ -525,8 +525,11 @@ def test_knowledge_pack_route_returns_gamified_study_pack(monkeypatch) -> None:
 def test_tts_route_returns_audio_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         tts_route.tts_service,
-        "synthesize_speech_wav",
-        lambda _payload: b"RIFFfakewav",
+        "synthesize_speech",
+        lambda _payload: tts_route.tts_service.SynthesizedSpeechAudio(
+            audio_bytes=b"fake-mp3",
+            media_type="audio/mpeg",
+        ),
     )
 
     response = client.post(
@@ -539,8 +542,8 @@ def test_tts_route_returns_audio_payload(monkeypatch) -> None:
     )
 
     assert response.status_code == 200
-    assert response.headers["content-type"].startswith("audio/wav")
-    assert response.content == b"RIFFfakewav"
+    assert response.headers["content-type"].startswith("audio/mpeg")
+    assert response.content == b"fake-mp3"
 
 
 def test_analyze_route_returns_503_for_missing_ai_configuration(monkeypatch) -> None:

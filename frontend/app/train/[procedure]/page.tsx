@@ -27,10 +27,7 @@ import {
   type RecordedVoiceClip,
   type VoiceRecordingController,
 } from "@/lib/audio";
-import {
-  FEEDBACK_LANGUAGE_OPTIONS,
-  toApiEquityMode,
-} from "@/lib/equity";
+import { toApiEquityMode } from "@/lib/equity";
 import { analyzeFrame, coachChat, getProcedure } from "@/lib/api";
 import { createDefaultCalibration } from "@/lib/geometry";
 import {
@@ -332,7 +329,7 @@ export default function TrainProcedurePage() {
   const [, setIsCoachLoading] = useState(false);
   const [frozenFrameUrl, setFrozenFrameUrl] = useState<string | null>(null);
   const [studentQuestion, setStudentQuestion] = useState("");
-  const [simulationConfirmed, setSimulationConfirmed] = useState(false);
+  const [simulationConfirmed, setSimulationConfirmed] = useState(true);
   const [isOnline, setIsOnline] = useState(true);
   const [voiceSessionStatus, setVoiceSessionStatus] =
     useState<VoiceSessionStatus>("idle");
@@ -490,17 +487,7 @@ export default function TrainProcedurePage() {
     [coachMessages],
   );
   const voiceChatEnabled = cameraReady && equityMode.audioCoaching;
-  const captureProfileLabel = useMemo(() => {
-    if (equityMode.lowBandwidthMode) {
-      return "Low-bandwidth capture";
-    }
-
-    if (equityMode.cheapPhoneMode) {
-      return "Cheap-phone profile";
-    }
-
-    return "Standard capture";
-  }, [equityMode.cheapPhoneMode, equityMode.lowBandwidthMode]);
+  const captureProfileLabel = "Standard capture";
   const cameraToggleLabel = cameraReady
     ? "Stop Camera"
     : cameraStatus.state === "requesting"
@@ -519,7 +506,7 @@ export default function TrainProcedurePage() {
     () => getVoiceStatusHeadline(voiceSessionStatus, cameraReady),
     [cameraReady, voiceSessionStatus],
   );
-  const captureProfileSignature = `${equityMode.lowBandwidthMode}:${equityMode.cheapPhoneMode}`;
+  const captureProfileSignature = "standard";
   const demoTimerLabel = useMemo(() => {
     if (demoSessionExpired) {
       return "Demo window ended";
@@ -546,7 +533,7 @@ export default function TrainProcedurePage() {
     : cameraReady
       ? `Hackathon demo timer: ${formatDurationClock(
           demoTimeRemainingMs,
-        )} remaining.${voiceChatEnabled ? " Coach voice is live." : " Turn on audio coaching for hands-free guidance."}`
+        )} remaining. Coach voice is live.`
       : "Start the camera to begin this guided practice block.";
 
   useEffect(() => {
@@ -687,13 +674,6 @@ export default function TrainProcedurePage() {
     });
   }
 
-  function handleSimulationConfirmedChange(nextSimulationConfirmed: boolean) {
-    setSimulationConfirmed(nextSimulationConfirmed);
-    persistSessionPatch({
-      simulationConfirmed: nextSimulationConfirmed,
-    });
-  }
-
   function handleLearnerFocusChange(nextLearnerFocus: string) {
     setStudentQuestion(nextLearnerFocus);
     persistSessionPatch({
@@ -707,23 +687,6 @@ export default function TrainProcedurePage() {
     persistSessionPatch({
       equityMode: nextEquityMode,
       debrief: undefined,
-    });
-  }
-
-  function handleEquityOptionChange(
-    key: "audioCoaching" | "lowBandwidthMode" | "cheapPhoneMode" | "offlinePracticeLogging",
-    value: boolean,
-  ) {
-    handleEquityModeChange({
-      ...equityMode,
-      [key]: value,
-    });
-  }
-
-  function handleFeedbackLanguageChange(language: EquityModeSettings["feedbackLanguage"]) {
-    handleEquityModeChange({
-      ...equityMode,
-      feedbackLanguage: language,
     });
   }
 
@@ -748,7 +711,7 @@ export default function TrainProcedurePage() {
       ...rawFreshSession,
       equityMode,
       practiceSurface: procedure.practice_surface,
-      simulationConfirmed: false,
+      simulationConfirmed: true,
       learnerFocus: "",
       updatedAt: new Date().toISOString(),
     });
@@ -1306,12 +1269,10 @@ export default function TrainProcedurePage() {
           <div>
             <h2 className="panel-title">Live session setup</h2>
             <p className="panel-copy">
-              Set the essentials before you capture a graded step.
+              The demo now uses one fixed guided setup so learners can start faster.
             </p>
           </div>
-          <span className="pill">
-            {simulationConfirmed ? "ready" : "confirm required"}
-          </span>
+          <span className="pill">demo defaults active</span>
         </div>
 
         <div className="inline-form-row">
@@ -1327,23 +1288,14 @@ export default function TrainProcedurePage() {
               <option value="intermediate">Intermediate</option>
             </select>
           </label>
-          <label className="field-label">
-            Feedback language
-            <select
-              onChange={(event) =>
-                handleFeedbackLanguageChange(
-                  event.target.value as EquityModeSettings["feedbackLanguage"],
-                )
-              }
-              value={equityMode.feedbackLanguage}
-            >
-              {FEEDBACK_LANGUAGE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="field-label">
+            Guided defaults
+            <div className="trainer-defaults-list">
+              <span className="pill">simulation-only on</span>
+              <span className="pill">audio coaching on</span>
+              <span className="pill">offline logging on</span>
+            </div>
+          </div>
         </div>
 
         <div className="inline-form-row" style={{ marginTop: 16 }}>
@@ -1369,111 +1321,15 @@ export default function TrainProcedurePage() {
             />
           </label>
         </div>
-
-        <div className="equity-toggle-grid" style={{ marginTop: 18 }}>
-          <label className="safety-confirm-card">
-            <input
-              checked={equityMode.enabled}
-              onChange={(event) =>
-                handleEquityModeChange({
-                  ...equityMode,
-                  enabled: event.target.checked,
-                })
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Equity mode</strong>
-              <p className="panel-copy">
-                Shorter, simpler coaching for lower-resource practice contexts.
-              </p>
-            </div>
-          </label>
-
-          <label className="safety-confirm-card">
-            <input
-              checked={simulationConfirmed}
-              onChange={(event) =>
-                handleSimulationConfirmedChange(event.target.checked)
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Simulation-only confirmation</strong>
-              <p className="panel-copy">
-                Required before the trainer can grade the step.
-              </p>
-            </div>
-          </label>
-        </div>
-
-        <div className="equity-toggle-grid" style={{ marginTop: 16 }}>
-          <label className="safety-confirm-card">
-            <input
-              checked={equityMode.audioCoaching}
-              onChange={(event) =>
-                handleEquityOptionChange("audioCoaching", event.target.checked)
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Audio coaching</strong>
-              <p className="panel-copy">
-                Lets the coach speak and listen hands-free.
-              </p>
-            </div>
-          </label>
-
-          <label className="safety-confirm-card">
-            <input
-              checked={equityMode.lowBandwidthMode}
-              onChange={(event) =>
-                handleEquityOptionChange("lowBandwidthMode", event.target.checked)
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Low-bandwidth capture</strong>
-              <p className="panel-copy">
-                Sends smaller frames to keep analysis responsive.
-              </p>
-            </div>
-          </label>
-
-          <label className="safety-confirm-card">
-            <input
-              checked={equityMode.cheapPhoneMode}
-              onChange={(event) =>
-                handleEquityOptionChange("cheapPhoneMode", event.target.checked)
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Cheap-phone profile</strong>
-              <p className="panel-copy">
-                Uses a lighter camera stream for older devices.
-              </p>
-            </div>
-          </label>
-
-          <label className="safety-confirm-card">
-            <input
-              checked={equityMode.offlinePracticeLogging}
-              onChange={(event) =>
-                handleEquityOptionChange(
-                  "offlinePracticeLogging",
-                  event.target.checked,
-                )
-              }
-              type="checkbox"
-            />
-            <div>
-              <strong>Offline-first logging</strong>
-              <p className="panel-copy">
-                Saves local practice history if the network drops.
-              </p>
-            </div>
-          </label>
+        <div className="feedback-block" style={{ marginTop: 18 }}>
+          <div className="feedback-header">
+            <strong>Fixed demo behavior</strong>
+            <span className="status-badge status-pass">active</span>
+          </div>
+          <p className="feedback-copy" style={{ marginTop: 12 }}>
+            Simulation-only confirmation, hands-free audio coaching, and offline-first
+            logging are always on for this demo.
+          </p>
         </div>
 
       </article>
@@ -1577,8 +1433,7 @@ export default function TrainProcedurePage() {
             </span>
           </div>
           <p className="trainer-session-note">
-            Keep the surface centered, confirm simulation-only mode, and use Check
-            My Step when the frame looks ready.
+            Keep the surface centered and use Check My Step when the frame looks ready.
           </p>
         </div>
 

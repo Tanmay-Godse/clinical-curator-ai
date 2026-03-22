@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import os
 import tempfile
+from dataclasses import dataclass
 from typing import Any
 
 from app.schemas.tts import SpeechSynthesisRequest
@@ -13,6 +15,61 @@ class TTSConfigurationError(RuntimeError):
 
 class TTSSynthesisError(RuntimeError):
     pass
+
+
+@dataclass(frozen=True)
+class SynthesizedSpeechAudio:
+    audio_bytes: bytes
+    media_type: str
+
+
+EDGE_TTS_VOICE_IDS: dict[str, dict[str, list[str]]] = {
+    "en": {
+        "guide_female": [
+            "en-US-JennyNeural",
+            "en-US-AvaNeural",
+            "en-US-AriaNeural",
+            "en-US-EmmaNeural",
+        ],
+        "mentor_female": [
+            "en-US-AriaNeural",
+            "en-US-MichelleNeural",
+            "en-US-EmmaNeural",
+            "en-US-JennyNeural",
+        ],
+        "system_default": [
+            "en-US-EmmaNeural",
+            "en-US-AvaNeural",
+        ],
+    },
+    "es": {
+        "guide_female": ["es-MX-DaliaNeural", "es-ES-ElviraNeural"],
+        "mentor_female": ["es-ES-ElviraNeural", "es-MX-DaliaNeural"],
+        "system_default": ["es-MX-DaliaNeural", "es-ES-ElviraNeural"],
+    },
+    "fr": {
+        "guide_female": ["fr-FR-DeniseNeural", "fr-FR-EloiseNeural"],
+        "mentor_female": ["fr-FR-EloiseNeural", "fr-FR-DeniseNeural"],
+        "system_default": ["fr-FR-DeniseNeural", "fr-FR-EloiseNeural"],
+    },
+    "hi": {
+        "guide_female": ["hi-IN-SwaraNeural"],
+        "mentor_female": ["hi-IN-SwaraNeural"],
+        "system_default": ["hi-IN-SwaraNeural"],
+    },
+}
+
+EDGE_TTS_RATE_BY_PRESET = {
+    "guide_female": "+4%",
+    "mentor_female": "-2%",
+    "system_default": "+0%",
+}
+
+EDGE_TTS_PITCH_BY_PRESET = {
+    "guide_female": "+2Hz",
+    "mentor_female": "+0Hz",
+    "system_default": "+0Hz",
+}
 
 
 VOICE_ID_PREFERENCES: dict[str, dict[str, list[str]]] = {
@@ -119,11 +176,81 @@ MALE_VOICE_HINTS = [
 ]
 
 
-def synthesize_speech_wav(payload: SpeechSynthesisRequest) -> bytes:
+def synthesize_speech(payload: SpeechSynthesisRequest) -> SynthesizedSpeechAudio:
     text = " ".join(payload.text.split())
     if not text:
         raise TTSSynthesisError("Speech text was empty after normalization.")
 
+    try:
+        return asyncio.run(_synthesize_with_edge_tts(text, payload))
+    except TTSConfigurationError:
+        raise
+    except TTSSynthesisError:
+        pass
+    except Exception:
+        pass
+
+    return SynthesizedSpeechAudio(
+        audio_bytes=_synthesize_with_pyttsx3(text, payload),
+        media_type="audio/wav",
+    )
+
+
+def synthesize_speech_wav(payload: SpeechSynthesisRequest) -> bytes:
+    return synthesize_speech(payload).audio_bytes
+
+
+async def _synthesize_with_edge_tts(
+    text: str,
+    payload: SpeechSynthesisRequest,
+) -> SynthesizedSpeechAudio:
+    try:
+        import edge_tts
+    except ImportError as exc:
+        raise TTSConfigurationError(
+            "Backend neural TTS requires edge-tts. Install backend requirements and restart the backend."
+        ) from exc
+
+    voice_id = _select_edge_voice_id(
+        language=payload.feedback_language,
+        coach_voice=payload.coach_voice,
+    )
+    if not voice_id:
+        raise TTSSynthesisError("No neural voice is configured for this language and preset.")
+
+    file_descriptor, output_path = tempfile.mkstemp(suffix=".mp3")
+    os.close(file_descriptor)
+
+    try:
+        communicate = edge_tts.Communicate(
+            text=text,
+            voice=voice_id,
+            rate=EDGE_TTS_RATE_BY_PRESET.get(payload.coach_voice, "+0%"),
+            pitch=EDGE_TTS_PITCH_BY_PRESET.get(payload.coach_voice, "+0Hz"),
+        )
+        await communicate.save(output_path)
+
+        if not os.path.exists(output_path) or os.path.getsize(output_path) <= 0:
+            raise TTSSynthesisError("Neural TTS did not produce any audio output.")
+
+        with open(output_path, "rb") as audio_file:
+            return SynthesizedSpeechAudio(
+                audio_bytes=audio_file.read(),
+                media_type="audio/mpeg",
+            )
+    except TTSSynthesisError:
+        raise
+    except Exception as exc:
+        raise TTSSynthesisError("Neural TTS could not synthesize speech.") from exc
+    finally:
+        if os.path.exists(output_path):
+            os.remove(output_path)
+
+
+def _synthesize_with_pyttsx3(
+    text: str,
+    payload: SpeechSynthesisRequest,
+) -> bytes:
     try:
         import pyttsx3
     except ImportError as exc:
@@ -174,6 +301,19 @@ def synthesize_speech_wav(payload: SpeechSynthesisRequest) -> bytes:
                 pass
         if os.path.exists(output_path):
             os.remove(output_path)
+
+
+def _select_edge_voice_id(*, language: str, coach_voice: str) -> str | None:
+    preferred = EDGE_TTS_VOICE_IDS.get(language, {}).get(coach_voice)
+    if preferred:
+        return preferred[0]
+
+    fallback = EDGE_TTS_VOICE_IDS.get(language, {}).get("system_default")
+    if fallback:
+        return fallback[0]
+
+    english_default = EDGE_TTS_VOICE_IDS.get("en", {}).get("guide_female", [])
+    return english_default[0] if english_default else None
 
 
 def _select_voice_id(*, engine: Any, language: str, coach_voice: str) -> str | None:
