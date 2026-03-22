@@ -17,6 +17,7 @@ This package contains the FastAPI backend for AI Clinical Skills Coach.
 - return stable fallback debrief content when the debrief AI path is unavailable
 - manage the faculty review queue
 - persist local demo accounts in SQLite
+- seed the fixed developer account and gate admin promotion through approvals
 
 ## Local Setup
 
@@ -125,6 +126,9 @@ Use a vision-capable model for `AI_ANALYSIS_MODEL`. Text-only models will not wo
 - `POST /api/v1/auth/accounts`
 - `POST /api/v1/auth/sign-in`
 - `PUT /api/v1/auth/accounts/{account_id}`
+- `GET /api/v1/auth/admin-requests`
+- `POST /api/v1/auth/admin-requests/{account_id}/approve`
+- `POST /api/v1/auth/admin-requests/{account_id}/reject`
 - `GET /api/v1/procedures/{id}`
 - `POST /api/v1/knowledge-pack`
 - `POST /api/v1/analyze-frame`
@@ -135,6 +139,15 @@ Use a vision-capable model for `AI_ANALYSIS_MODEL`. Text-only models will not wo
 - `POST /api/v1/review-cases/{case_id}/resolve`
 
 ## Current Route Notes
+
+Auth routes:
+
+- the backend always seeds a fixed developer account:
+  - `developer@gmail.com`
+  - `Qwerty@123`
+- the developer email is reserved and cannot be created from the UI
+- `POST /api/v1/auth/accounts` stores `Admin reviewer` signups as `student` plus a pending admin request
+- only the fixed developer account can list, approve, or reject pending admin requests
 
 `POST /api/v1/analyze-frame`
 
@@ -188,6 +201,8 @@ Smoke-tested locally on `2026-03-22`:
 - health
 - procedure load
 - auth preview and sign-in
+- fixed developer sign-in
+- admin-request approval flow
 - knowledge pack
 - coach chat
 - analyze frame

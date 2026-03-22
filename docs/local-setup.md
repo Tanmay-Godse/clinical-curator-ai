@@ -11,6 +11,7 @@ the UI exposes today.
 - `Speech-to-text`: `gpt-4o-mini-transcribe`
 - `Session storage`: browser `localStorage`
 - `Accounts`: local demo accounts persisted through the backend
+- `Developer approvals`: fixed super-user account gates admin promotion
 
 ## Local Services
 
@@ -97,78 +98,54 @@ If you use a nonstandard proxy, set `AI_PROVIDER` explicitly.
 - `/profile`: local account profile and editing
 - `/review/[sessionId]`: session review and debrief
 - `/admin/reviews`: faculty review queue
+- `/developer/approvals`: fixed developer approval queue
+
+## Local Auth Model
+
+The login page is shared for everyone.
+
+- `student`: default learner workspace
+- `admin`: only becomes active after developer approval
+- `developer`: fixed super-user account used for approvals and admin queue access
+
+Fixed developer credentials for the local demo:
+
+- email: `developer@gmail.com`
+- password: `Qwerty@123`
+
+Important behavior:
+
+- the developer email cannot be created from the UI
+- selecting `Admin reviewer` during account creation creates a student account with a pending admin request
+- only the fixed developer account can approve or reject those requests
 
 ## Live Trainer Behavior
 
 The trainer is intentionally constrained for the hackathon demo:
 
 - each camera run is limited to `2 minutes`
-- the recurring camera-based coach refresh runs every `5 seconds`
+- the recurring camera-based coach refresh runs every `1 second`
 - the voice loop listens continuously between coach turns when `Audio coaching` is on
 - the camera surface itself stays clean while live; setup overlays are not drawn on top of the video
+- setup automatically passes once a safe simulated practice surface is clearly visible
 
-## Setup Panel Features
+## Live Session Defaults
 
-### Equity mode
+The learner no longer has to manage a large setup checkbox cluster.
 
-What it does:
+Always on for the current demo:
 
-- tells the backend to keep coaching and debrief language plainer and more access-focused
-- still preserves the selected feedback language
+- `Simulation-only confirmation`
+- `Audio coaching`
+- `Offline-first logging`
 
-What it does not do:
+Still configurable:
 
-- it does not automatically turn on the other toggles
-
-### Simulation-only confirmation
-
-What it does:
-
-- blocks frame analysis until the learner confirms the camera shows a safe practice surface
-- allows the coach to start using fresh camera frames for guidance
-
-### Audio coaching
-
-What it does:
-
-- enables spoken coaching playback
-- primes microphone access when the camera starts
-- keeps the hands-free loop running: coach speaks, listens, transcribes, and replies
-
-### Low-bandwidth capture
-
-What it does:
-
-- compresses captured analysis frames more aggressively
-- lowers uploaded frame size so slower connections stay usable
-
-Current implementation:
-
-- uploaded frames target a smaller long edge and lower JPEG quality
-- changing this while the camera is live refreshes the stream with the smaller capture profile
-
-### Cheap-phone profile
-
-What it does:
-
-- asks the browser for a lighter live camera stream
-- helps older or weaker devices keep the preview stable
-
-Current implementation:
-
-- the camera stream is requested at a smaller target resolution
-- changing this while the camera is live refreshes the stream with the lighter profile
-
-### Offline-first logging
-
-What it does:
-
-- saves a local offline practice log when analysis is requested while the device is offline
-- prevents those attempts from being silently lost
-
-Current implementation:
-
-- offline logs are stored in browser storage and surfaced again on the review flow
+- `Skill level`
+- `Feedback language`
+- `Practice surface`
+- `Learner focus`
+- `Low-bandwidth capture`
 
 ## Review Flow Notes
 
@@ -180,8 +157,8 @@ Current implementation:
 
 ## Human Review Queue
 
-Admin reviewers can open `http://localhost:3000/admin/reviews` after signing in
-with an admin account from `/login`.
+Admin reviewers can open `http://localhost:3000/admin/reviews` after the fixed
+developer account approves their pending request.
 
 The queue primarily collects:
 
@@ -226,6 +203,8 @@ pytest
 Verified smoke flow on `2026-03-22`:
 
 - login and account creation
+- fixed developer sign-in
+- admin-request approval flow
 - dashboard render
 - library render
 - knowledge lab render

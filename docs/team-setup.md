@@ -20,6 +20,7 @@ That means:
 - if teammates share the same backend, they share the same account database
 - if teammates use different browsers or machines, they do not automatically share training session history
 - pushing to GitHub should never include `backend/.env` or `backend/app/data/auth.db`
+- the fixed developer account also lives in that shared SQLite database
 
 ## Secret Handling for an Open Repo
 
@@ -112,6 +113,7 @@ Result:
 
 - all collaborators use the same account database
 - each collaborator still keeps their own training sessions in browser storage
+- pending admin reviewer requests are also shared, because they live in the backend account database
 
 ## Shared Backend Notes
 
@@ -120,6 +122,7 @@ If you use one shared backend:
 - back up `backend/app/data/auth.db` if account continuity matters
 - do not commit `auth.db`
 - expect users on different browsers to have different local session histories even when they share one backend
+- be aware that the fixed developer credentials are shared across that backend unless you customize the code for a private deployment
 
 ## Push Checklist
 
@@ -140,5 +143,6 @@ git status --short
 ## Current Limits
 
 - this is still demo-oriented auth, not production identity management
+- the fixed developer credentials are hard-coded for the local demo and should be changed before any real deployment
 - password resets, email verification, and multi-device session sync are not implemented
 - training sessions are still local to the browser profile that created them

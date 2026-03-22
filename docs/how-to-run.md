@@ -16,6 +16,7 @@ Other core routes:
 - `/library`
 - `/profile`
 - `/admin/reviews`
+- `/developer/approvals`
 
 ## Prerequisites
 
@@ -102,31 +103,41 @@ http://localhost:3000
 
 The root route redirects to `/dashboard`.
 
+If the fixed developer account signs in, the app immediately routes it to
+`/developer/approvals` instead of the student dashboard.
+
 Then:
 
 1. Create or sign in to a local account from `/login`.
 2. Open `/train/simple-interrupted-suture`.
-3. Confirm the simulation-only checkbox before analysis.
-4. Turn on `Audio coaching` if you want the hands-free voice loop.
-5. Use `/admin/reviews` with an admin account if you want to inspect flagged attempts.
+3. Start the camera and use `Check My Step` for stage analysis.
+4. If you want an admin reviewer account, choose `Admin reviewer` during account creation.
+5. Sign in as `developer@gmail.com` to approve or reject pending admin requests.
+6. Use `/admin/reviews` after approval if you want to inspect flagged attempts.
 
 ## 4. Live Trainer Notes
 
 Current demo behavior:
 
 - camera runs are limited to `2 minutes`
-- frame capture and proactive coach refresh run every `5 seconds`
+- frame capture and proactive coach refresh run every `1 second`
 - learner voice is transcribed before being sent to Claude
 - low-confidence or ambiguous attempts stay `not graded` and prompt a retake
+- setup-stage analysis now accepts a clearly visible orange, banana, foam pad, or similar inert practice surface as a valid simulated field
 
-Setup toggles:
+Current fixed session defaults:
 
-- `Equity mode`: asks the AI to keep coaching and debrief language plainer and more access-focused
-- `Simulation-only confirmation`: required before image-based analysis runs
-- `Audio coaching`: enables spoken coaching plus microphone listening for learner replies
-- `Low-bandwidth capture`: reduces uploaded frame size and quality
-- `Cheap-phone profile`: requests a lighter live camera stream
-- `Offline-first logging`: stores a local practice log when analysis is requested while offline
+- `Simulation-only confirmation` is always on
+- `Audio coaching` is always on
+- `Offline-first logging` is always on
+
+Still editable in the trainer:
+
+- `Skill level`
+- `Feedback language`
+- `Practice surface`
+- `Learner focus`
+- `Low-bandwidth capture`
 
 ## Quick Verification
 
@@ -162,10 +173,17 @@ Browser smoke flow verified on `2026-03-22`:
 3. open `/library`, `/knowledge`, and `/profile`
 4. save a profile edit
 5. open `/train/simple-interrupted-suture`
-6. confirm `Simulation-only confirmation`
-7. start the camera
-8. run `Check My Step`
-9. open the linked review page
+6. start the camera
+7. run `Check My Step`
+8. open the linked review page
+
+Developer approval flow verified separately:
+
+1. create an account from `/login` with role `Admin reviewer`
+2. sign in as `developer@gmail.com`
+3. open `/developer/approvals`
+4. approve the pending admin request
+5. sign back in with the reviewed account and confirm `/admin/reviews` is accessible
 
 ## Troubleshooting
 
@@ -173,6 +191,7 @@ Browser smoke flow verified on `2026-03-22`:
 - If voice coaching is enabled after the browser has already blocked mic access, allow microphone permission and retry the camera.
 - If learner audio cannot be transcribed, confirm the OpenAI transcription key is configured.
 - If the network is offline, analyzed attempts will not be sent to Claude, but local offline practice logs can still be saved when `Offline-first logging` is on.
+- If an admin reviewer cannot access `/admin/reviews`, check whether the request is still pending inside `/developer/approvals`.
 
 ## Need More Detail?
 

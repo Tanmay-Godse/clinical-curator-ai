@@ -90,6 +90,9 @@ curl "http://localhost:8001/api/v1/auth/accounts/preview?identifier=student01"
   "name": "Student One",
   "username": "student01",
   "role": "student",
+  "is_developer": false,
+  "requested_role": null,
+  "admin_approval_status": "none",
   "created_at": "2026-03-21T18:45:00.000000+00:00"
 }
 ```
@@ -120,6 +123,15 @@ Creates a new workspace account and persists it in the backend SQLite database.
 - `400` for invalid usernames or short passwords
 - `409` if the username is already registered
 
+### Current role behavior
+
+- choosing `"student"` creates a normal learner account
+- choosing `"admin"` creates a learner account with:
+  - `"role": "student"`
+  - `"requested_role": "admin"`
+  - `"admin_approval_status": "pending"`
+- the reserved developer email `developer@gmail.com` cannot be created from the UI
+
 ## `POST /auth/sign-in`
 
 Signs in an existing workspace account by identifier and password.
@@ -140,6 +152,12 @@ Signs in an existing workspace account by identifier and password.
 - `401` for invalid credentials
 - `404` if the account does not exist
 - `409` if the requested role does not match the stored account role
+
+### Current role notes
+
+- the fixed developer account signs in through the same endpoint
+- a pending admin-request account will receive `409` if it tries to sign in as `"admin"` before approval
+- a rejected admin-request account can still sign in as `"student"`
 
 ## `PUT /auth/accounts/{account_id}`
 
@@ -168,6 +186,56 @@ Updates a persisted workspace account.
 - `400` for invalid input or incorrect current password
 - `404` if the account id does not exist
 - `409` if the new username is already registered
+- `403` if the fixed developer account is edited through this route
+
+## `GET /auth/admin-requests`
+
+Returns pending admin reviewer requests for the fixed developer account.
+
+### Query parameters
+
+- `developer_account_id`: the signed-in developer account id
+
+### Notes
+
+- only the fixed developer account can use this route
+- returns the same account-preview shape shown above
+
+## `POST /auth/admin-requests/{account_id}/approve`
+
+Approves a pending admin request and promotes that account to `role="admin"`.
+
+### Request body
+
+```json
+{
+  "developer_account_id": "account-developer-team"
+}
+```
+
+### Status codes
+
+- `200` on success
+- `403` if the caller is not the fixed developer account
+- `404` if the target account does not exist
+
+## `POST /auth/admin-requests/{account_id}/reject`
+
+Rejects a pending admin request and keeps that account in the student role.
+
+### Request body
+
+```json
+{
+  "developer_account_id": "account-developer-team"
+}
+```
+
+### Status codes
+
+- `200` on success
+- `403` if the caller is not the fixed developer account
+- `404` if the target account does not exist
 
 ## `POST /knowledge-pack`
 
@@ -258,6 +326,7 @@ The backend:
 - `simulation_confirmation`: required simulation-only acknowledgement before analysis
 - `session_id`: optional session id used to attach human-review cases
 - `student_name`: optional learner name for the review queue
+- `student_username`: optional learner username for the review queue
 - `feedback_language`: requested learner-facing language, currently `en`, `es`, `fr`, or `hi`
 - `equity_mode`: optional access-profile settings that guide response style and lower-resource behavior
 
@@ -384,8 +453,8 @@ Builds the coach speech audio returned to the frontend.
 
 ### Response
 
-- returns `audio/wav`
-- the verified local smoke run returned a non-empty wav payload
+- returns the generated audio content type from the active TTS engine
+- current local behavior is usually `audio/mpeg` when neural `edge-tts` succeeds, with `audio/wav` as fallback
 
 ## `GET /review-cases`
 

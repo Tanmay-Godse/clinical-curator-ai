@@ -8,6 +8,7 @@ The current primary demo path is:
 - `/dashboard` as the shared app starting point
 - `/train/simple-interrupted-suture` for the live session
 - `/review/[sessionId]` for debrief and replay
+- `/developer/approvals` for the fixed super-user approval queue
 - `Claude Sonnet 4.6` for coaching, analysis, and debriefs
 - `gpt-4o-mini-transcribe` for learner voice transcription
 
@@ -20,8 +21,9 @@ The current build also includes:
 - cross-session personal error fingerprinting and adaptive drill prescription
 - human-in-the-loop validation for flagged sessions
 - a hard simulation-only safety gate before analysis
-- student and admin login entry points
-- equity mode with multilingual feedback, audio coaching, low-bandwidth capture, cheap-phone compatibility, and offline-first logging
+- one shared login flow for students, admin-request accounts, and the fixed developer account
+- developer approval workflow for promoting pending admin reviewers
+- fixed live-session defaults for audio coaching, simulation confirmation, and offline-first logging
 - open learning-library assets for rubrics and benchmark starters
 - safer-skills roadmap notes for broader, lower-risk module expansion
 - support for both Anthropic-style and OpenAI-compatible AI endpoints
@@ -44,18 +46,25 @@ The current build also includes:
 
 - one core procedure: `simple-interrupted-suture`
 - each live camera run is limited to `2 minutes`
-- the live coach/frame refresh runs every `5 seconds`
+- the live coach/frame refresh runs every `1 second`
 - sessions are stored in browser `localStorage`
 - this is for simulation practice only, not real clinical care
 
-## Core Setup Features
+## Account Roles
 
-- `Equity mode`: plainer, more access-focused coaching language
-- `Simulation-only confirmation`: required before frame analysis
-- `Audio coaching`: spoken coaching plus live learner voice loop
-- `Low-bandwidth capture`: smaller uploaded analysis frames
-- `Cheap-phone profile`: lighter live camera stream
-- `Offline-first logging`: local practice logs when offline
+- `student`: normal learner workspace
+- `admin`: reviewer workspace after developer approval
+- `developer`: fixed super-user account used only for approvals and admin queue access
+
+Local demo developer credentials are fixed in the backend:
+
+- email: `developer@gmail.com`
+- password: `Qwerty@123`
+
+New users cannot create that developer email from the UI.
+
+If a learner selects `Admin reviewer` during account creation, the backend stores the
+account as `student` plus a pending admin request until the developer account approves it.
 
 ## Quick Start
 
