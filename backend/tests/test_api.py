@@ -6,12 +6,18 @@ from fastapi.testclient import TestClient
 from app.api.routes import analyze as analyze_route
 from app.api.routes import coach as coach_route
 from app.api.routes import debrief as debrief_route
+from app.api.routes import knowledge as knowledge_route
 from app.api.routes import review_cases as review_cases_route
 from app.api.routes import tts as tts_route
 from app.main import app
 from app.schemas.analyze import AnalyzeFrameResponse, Issue, SafetyGateResult
 from app.schemas.coach import CoachChatResponse
 from app.schemas.debrief import AdaptiveDrill, DebriefResponse, ErrorFingerprintItem, QuizQuestion
+from app.schemas.knowledge import (
+    KnowledgeFlashcard,
+    KnowledgeMultipleChoiceQuestion,
+    KnowledgePackResponse,
+)
 from app.services import auth_service
 from app.services.ai_client import AIConfigurationError
 from app.services import review_queue_service
@@ -160,6 +166,59 @@ def test_auth_sign_in_upgrades_legacy_sha256_hash(tmp_path, monkeypatch) -> None
     assert row[1]
     assert row[2] == auth_service.CURRENT_PASSWORD_SCHEME
     assert row[0] != hashlib.sha256("supersecure".encode("utf-8")).hexdigest()
+
+
+def test_auth_update_account_changes_profile_and_password(tmp_path, monkeypatch) -> None:
+    monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
+
+    create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Student One",
+            "username": "student01",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+
+    assert create_response.status_code == 201
+    account_id = create_response.json()["id"]
+
+    update_response = client.put(
+        f"/api/v1/auth/accounts/{account_id}",
+        json={
+            "name": "Student Prime",
+            "username": "student.prime",
+            "current_password": "supersecure",
+            "new_password": "newsupersecure",
+        },
+    )
+
+    assert update_response.status_code == 200
+    updated = update_response.json()
+    assert updated["name"] == "Student Prime"
+    assert updated["username"] == "student.prime"
+
+    old_sign_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "student01",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+    assert old_sign_in.status_code == 404
+
+    new_sign_in = client.post(
+        "/api/v1/auth/sign-in",
+        json={
+            "identifier": "student.prime",
+            "password": "newsupersecure",
+            "role": "student",
+        },
+    )
+    assert new_sign_in.status_code == 200
+    assert new_sign_in.json()["id"] == account_id
 
 
 def test_procedure_route_returns_expected_shape() -> None:
@@ -384,6 +443,85 @@ def test_coach_chat_route_returns_conversational_turn(monkeypatch) -> None:
     assert data["camera_observations"] == ["Practice surface is visible and centered."]
 
 
+def test_knowledge_pack_route_returns_gamified_study_pack(monkeypatch) -> None:
+    def fake_generate_knowledge_pack(_payload):
+        return KnowledgePackResponse(
+            title="Needle Entry Sprint",
+            summary="A quick study pack for sharpening stage knowledge before practice.",
+            recommended_focus="needle entry consistency",
+            celebration_line="Strong round. Take that focus back into the trainer.",
+            rapidfire_rounds=[
+                KnowledgeMultipleChoiceQuestion(
+                    id="rapid-1",
+                    stage_id="needle_entry",
+                    prompt="What is the main goal of Needle Entry?",
+                    choices=[
+                        "Approach at a confident entry angle",
+                        "Skip directly to knot tie",
+                        "Hide the entry point",
+                        "Ignore the practice line",
+                    ],
+                    correct_index=0,
+                    explanation="The trainer wants a confident, visible first bite.",
+                    point_value=10,
+                    difficulty="warmup",
+                )
+            ]
+            * 5,
+            quiz_questions=[
+                KnowledgeMultipleChoiceQuestion(
+                    id="quiz-1",
+                    stage_id="needle_exit",
+                    prompt="Which cue belongs to Needle Exit?",
+                    choices=[
+                        "Arc completed across the wound line",
+                        "Thread twisting during tie",
+                        "Knot centered",
+                        "Surface missing from frame",
+                    ],
+                    correct_index=0,
+                    explanation="Needle Exit checks the far-side completion of the arc.",
+                    point_value=18,
+                    difficulty="core",
+                )
+            ]
+            * 5,
+            flashcards=[
+                KnowledgeFlashcard(
+                    id="flash-1",
+                    stage_id="needle_entry",
+                    front="Needle Entry",
+                    back="Keep the entry point visible and the angle confident.",
+                    memory_tip="Slow the first bite down until the angle looks repeatable.",
+                    point_value=10,
+                )
+            ]
+            * 6,
+        )
+
+    monkeypatch.setattr(
+        knowledge_route.knowledge_service,
+        "generate_knowledge_pack",
+        fake_generate_knowledge_pack,
+    )
+
+    response = client.post(
+        "/api/v1/knowledge-pack",
+        json={
+            "procedure_id": "simple-interrupted-suture",
+            "skill_level": "beginner",
+            "feedback_language": "en",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["title"] == "Needle Entry Sprint"
+    assert len(data["rapidfire_rounds"]) == 5
+    assert len(data["quiz_questions"]) == 5
+    assert len(data["flashcards"]) == 6
+
+
 def test_tts_route_returns_audio_payload(monkeypatch) -> None:
     monkeypatch.setattr(
         tts_route.tts_service,
@@ -396,7 +534,7 @@ def test_tts_route_returns_audio_payload(monkeypatch) -> None:
         json={
             "text": "Coach voice check.",
             "feedback_language": "en",
-            "coach_voice": "guide_male",
+            "coach_voice": "guide_female",
         },
     )
 

@@ -6,7 +6,7 @@ The backend exposes a small API under:
 http://localhost:8001/api/v1
 ```
 
-The frontend only talks to this backend. Browser clients do not call Anthropic or OpenAI-compatible model APIs directly.
+The frontend only talks to this backend. Browser clients do not call Anthropic or OpenAI APIs directly.
 
 ## Conventions
 
@@ -141,6 +141,71 @@ Signs in an existing workspace account by identifier and password.
 - `404` if the account does not exist
 - `409` if the requested role does not match the stored account role
 
+## `PUT /auth/accounts/{account_id}`
+
+Updates a persisted workspace account.
+
+### Request body
+
+```json
+{
+  "name": "Student One Updated",
+  "username": "student01",
+  "current_password": "supersecure",
+  "new_password": "evenmoresecure"
+}
+```
+
+### Notes
+
+- `current_password` is always required
+- `new_password` is optional
+- on success, the frontend updates the saved local auth user and migrates local session ownership to the new username
+
+### Error behavior
+
+- `200` on success
+- `400` for invalid input or incorrect current password
+- `404` if the account id does not exist
+- `409` if the new username is already registered
+
+## `POST /knowledge-pack`
+
+Builds the `Knowledge Lab` study pack used by `/knowledge`.
+
+### Request body
+
+```json
+{
+  "procedure_id": "simple-interrupted-suture",
+  "skill_level": "beginner",
+  "feedback_language": "en",
+  "learner_name": "Student One",
+  "focus_area": "needle entry consistency",
+  "recent_issue_labels": ["angle too shallow"]
+}
+```
+
+### Successful response shape
+
+```json
+{
+  "title": "Simple Interrupted Suture knowledge lab",
+  "summary": "Review the live rubric in a fast, game-style format before going back into the trainer.",
+  "recommended_focus": "needle entry consistency",
+  "celebration_line": "Nice work. Keep the next round focused on one visible correction at a time.",
+  "rapidfire_rounds": [],
+  "quiz_questions": [],
+  "flashcards": []
+}
+```
+
+### Notes
+
+- the current demo config uses the cheaper learning-model path
+- if the model call fails, the backend returns a rubric-based fallback pack
+- the verified local smoke run returned `5` rapidfire rounds, `5` quiz questions, and `6` flashcards
+
 ## `POST /analyze-frame`
 
 Submits one captured trainer frame for stage analysis.
@@ -150,7 +215,7 @@ The backend:
 - validates the request
 - applies a simulation-only safety gate before coaching
 - loads the procedure rubric and current stage
-- auto-detects whether the configured AI endpoint is OpenAI-compatible or Anthropic-style
+- sends the request to the configured AI backend
 - prompts the configured model
 - validates the returned JSON
 - filters overlay targets against the current stage
@@ -165,6 +230,7 @@ The backend:
   "procedure_id": "simple-interrupted-suture",
   "stage_id": "needle_entry",
   "skill_level": "beginner",
+  "practice_surface": "Orange, banana, or foam pad",
   "image_base64": "ZmFrZQ==",
   "student_question": "optional question",
   "simulation_confirmation": true,
@@ -186,6 +252,7 @@ The backend:
 - `procedure_id`: currently `simple-interrupted-suture`
 - `stage_id`: one of the defined procedure stage ids
 - `skill_level`: `beginner` or `intermediate`
+- `practice_surface`: optional learner-selected surface label passed into safety, analysis, and coaching context
 - `image_base64`: raw base64 image bytes, without a data URL prefix
 - `student_question`: optional free-text prompt from the learner
 - `simulation_confirmation`: required simulation-only acknowledgement before analysis
@@ -260,8 +327,65 @@ The backend:
 
 - a vision-capable model is required for this route
 - if the safety gate blocks the image, the response still returns `200` with `analysis_mode="blocked"`
-- `chaitnya26/Qwen2.5-Omni-3B-Fork` and `Qwen/Qwen2.5-VL-3B-Instruct` are good OpenAI-compatible examples
-- text-only models are not suitable for this route because image input is required
+- the current demo configuration uses `claude-sonnet-4-6` for this route
+- text-only models are not suitable because image input is required
+
+## `POST /coach-chat`
+
+Generates the next conversational coaching turn for the live session.
+
+### Request body
+
+```json
+{
+  "procedure_id": "simple-interrupted-suture",
+  "stage_id": "needle_entry",
+  "skill_level": "beginner",
+  "practice_surface": "Foam pad",
+  "feedback_language": "en",
+  "simulation_confirmation": true,
+  "student_name": "Student One",
+  "session_id": "session-123",
+  "equity_mode": {
+    "enabled": false,
+    "audio_coaching": true,
+    "low_bandwidth_mode": false,
+    "cheap_phone_mode": false,
+    "offline_practice_logging": true
+  },
+  "messages": [
+    {
+      "role": "user",
+      "content": "Help me keep the entry angle steady."
+    }
+  ]
+}
+```
+
+### Notes
+
+- accepts either text turns or learner audio that is transcribed first
+- can include the current frame when `simulation_confirmation=true`
+- returns `conversation_stage`, spoken `coach_message`, `plan_summary`, `suggested_next_step`, and optional `learner_goal_summary`
+
+## `POST /tts`
+
+Builds the coach speech audio returned to the frontend.
+
+### Request body
+
+```json
+{
+  "text": "Smoke test voice output.",
+  "feedback_language": "en",
+  "coach_voice": "guide_female"
+}
+```
+
+### Response
+
+- returns `audio/wav`
+- the verified local smoke run returned a non-empty wav payload
 
 ## `GET /review-cases`
 

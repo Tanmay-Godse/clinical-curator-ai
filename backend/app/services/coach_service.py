@@ -5,26 +5,47 @@ from pydantic import ValidationError
 
 from app.core.config import settings
 from app.schemas.analyze import AnalyzeFrameRequest
-from app.schemas.coach import CoachChatDraft, CoachChatRequest, CoachChatResponse
+from app.schemas.coach import (
+    CoachChatDraft,
+    CoachChatMessage,
+    CoachChatRequest,
+    CoachChatResponse,
+)
 from app.schemas.procedure import ProcedureDefinition, ProcedureStage
-from app.services import safety_service
-from app.services.ai_client import AIRequestError, AIResponseError, send_json_message
+from app.services import safety_service, transcription_service
+from app.services.ai_client import (
+    AIConfigurationError,
+    AIRequestError,
+    AIResponseError,
+    send_json_message,
+)
 from app.services.procedure_loader import load_procedure, load_stage
 
 
 def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
     procedure = load_procedure(payload.procedure_id)
     stage = load_stage(procedure, payload.stage_id)
+    try:
+        normalized_payload = _normalize_payload_with_transcript(payload)
+    except (AIConfigurationError, AIRequestError, AIResponseError) as exc:
+        if payload.audio_base64:
+            return _build_transcription_blocked_response(
+                payload=payload,
+                stage=stage,
+                reason=str(exc),
+            )
+        raise
+
     fallback_response = _build_fallback_response(
-        payload=payload,
+        payload=normalized_payload,
         procedure=procedure,
         stage=stage,
     )
 
     safety_gate = None
-    if payload.image_base64 and payload.simulation_confirmation:
+    if normalized_payload.image_base64 and normalized_payload.simulation_confirmation:
         safety_gate = safety_service.evaluate_safety_gate(
-            payload=_to_safety_payload(payload),
+            payload=_to_safety_payload(normalized_payload),
             procedure=procedure,
             stage=stage,
         )
@@ -47,31 +68,18 @@ def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
             max_tokens=settings.ai_coach_max_tokens,
             system_prompt=_build_coach_system_prompt(),
             user_content=_build_coach_user_content(
-                payload=payload,
+                payload=normalized_payload,
                 procedure=procedure,
                 stage=stage,
-                include_image=bool(payload.image_base64 and payload.simulation_confirmation),
+                include_image=bool(
+                    normalized_payload.image_base64
+                    and normalized_payload.simulation_confirmation
+                ),
             ),
             output_schema=CoachChatDraft.model_json_schema(),
         )
         draft = CoachChatDraft.model_validate(response_data)
-    except AIRequestError as exc:
-        if payload.audio_base64 and _is_audio_support_error(exc):
-            return CoachChatResponse(
-                conversation_stage="blocked",
-                coach_message=(
-                    "Voice chat is not available yet because the local vLLM server was started without audio support."
-                ),
-                plan_summary=(
-                    "Use typed coach replies for now, or restart the model server with audio support enabled."
-                ),
-                suggested_next_step=(
-                    "Install the audio extras for vLLM, restart the model server, then try another voice reply."
-                ),
-                camera_observations=[],
-                stage_focus=[stage.title],
-                learner_goal_summary="",
-            )
+    except AIRequestError:
         return fallback_response
     except (AIResponseError, ValidationError):
         return fallback_response
@@ -92,6 +100,60 @@ def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
     )
 
 
+def _normalize_payload_with_transcript(payload: CoachChatRequest) -> CoachChatRequest:
+    if not payload.audio_base64:
+        return payload
+
+    transcript = transcription_service.transcribe_audio_clip(
+        audio_base64=payload.audio_base64,
+        audio_format=payload.audio_format,
+    ).strip()
+
+    if not transcript:
+        raise AIResponseError(
+            "The transcription endpoint returned an empty learner transcript."
+        )
+
+    next_messages = [
+        *payload.messages,
+        CoachChatMessage(role="user", content=transcript),
+    ][-12:]
+
+    return CoachChatRequest.model_validate(
+        {
+            **payload.model_dump(mode="json"),
+            "audio_base64": None,
+            "audio_format": None,
+            "messages": [message.model_dump(mode="json") for message in next_messages],
+        }
+    )
+
+
+def _build_transcription_blocked_response(
+    *,
+    payload: CoachChatRequest,
+    stage: ProcedureStage,
+    reason: str,
+) -> CoachChatResponse:
+    learner_name = (payload.student_name or "there").strip()
+    detail = reason.strip() or "The learner audio clip could not be turned into text."
+    return CoachChatResponse(
+        conversation_stage="blocked",
+        coach_message=(
+            f"Hello {learner_name}. I could not transcribe that voice reply clearly enough to continue hands-free. {detail}"
+        ),
+        plan_summary=(
+            "Use learner voice through transcription first, or type the goal so the coach can keep guiding the stage."
+        ),
+        suggested_next_step=(
+            "Try another short voice reply in a quieter setting, or type the learner goal in one sentence."
+        ),
+        camera_observations=[],
+        stage_focus=[stage.title],
+        learner_goal_summary="",
+    )
+
+
 def _build_coach_system_prompt() -> str:
     return (
         "You are a respectful AI voice coach for a simulation-only suturing trainer. "
@@ -102,8 +164,9 @@ def _build_coach_system_prompt() -> str:
         "If coach_mode is hands_free_startup, greet the learner briefly, mention the current stage by name, "
         "and tell them exactly what to show or stabilize next. "
         "If coach_mode is hands_free_observing, do not ask broad planning questions. Give one or two short, stage-specific cues grounded in the current frame. "
+        "If the learner asks a direct question, answer it clearly in one or two short sentences before returning to the current stage cue. "
         "If the learner has not shared a goal yet and no frame is available, ask at most one short, stage-specific question. "
-        "If an audio clip is provided, listen to it carefully, infer the learner's goal from the audio, "
+        "If the learner's latest reply came from voice transcription, infer the learner's goal from that transcript "
         "and populate learner_goal_summary with a short phrase in the requested feedback_language. "
         "If the learner has shared a goal, summarize a short plan, keep it practical, and guide them stage by stage. "
         "If an image is provided, mention only visible setup or technique observations from that frame. "
@@ -122,6 +185,7 @@ def _build_coach_user_content(
     stage: ProcedureStage,
     include_image: bool,
 ) -> list[dict[str, Any]]:
+    practice_surface = (payload.practice_surface or procedure.practice_surface).strip()
     conversation = [
         {"role": message.role, "content": message.content.strip()}
         for message in payload.messages
@@ -130,7 +194,7 @@ def _build_coach_user_content(
     coach_mode = _determine_coach_mode(payload)
     context = {
         "procedure_title": procedure.title,
-        "practice_surface": procedure.practice_surface,
+        "practice_surface": practice_surface,
         "simulation_only": procedure.simulation_only,
         "coach_mode": coach_mode,
         "camera_ready": bool(payload.image_base64),
@@ -285,12 +349,12 @@ def _build_fallback_response(
         conversation_stage="guiding",
         coach_message=(
             f"Thanks. We will focus on {last_user_message}. "
-            f"Start by keeping the practice surface steady and visible for the {stage.title.lower()} stage. "
+            f"Start by keeping {payload.practice_surface or procedure.practice_surface} steady and visible for the {stage.title.lower()} stage. "
             "Once the frame is clear, check the step and I will help refine the next attempt."
         ),
         plan_summary=f"Practice goal: {last_user_message}. Start with the {stage.title.lower()} stage.",
         suggested_next_step=(
-            f"Center the practice surface, prepare for {stage.title.lower()}, and capture the next frame."
+            f"Center {payload.practice_surface or procedure.practice_surface}, prepare for {stage.title.lower()}, and capture the next frame."
         ),
         camera_observations=(
             ["A live frame is available for image-guided coaching."]
@@ -311,6 +375,7 @@ def _to_safety_payload(payload: CoachChatRequest) -> AnalyzeFrameRequest:
         procedure_id=payload.procedure_id,
         stage_id=payload.stage_id,
         skill_level=payload.skill_level,
+        practice_surface=payload.practice_surface,
         image_base64=payload.image_base64 or "missing-frame",
         student_question=last_user_message or None,
         simulation_confirmation=payload.simulation_confirmation,
@@ -328,12 +393,6 @@ def _clean_lines(lines: list[str]) -> list[str]:
         if candidate and candidate not in cleaned:
             cleaned.append(candidate)
     return cleaned
-
-
-def _is_audio_support_error(error: AIRequestError) -> bool:
-    return "vllm[audio]" in str(error).lower() or "audio support" in str(error).lower()
-
-
 def _determine_coach_mode(payload: CoachChatRequest) -> str:
     if payload.image_base64 and not payload.messages:
         return "hands_free_observing"

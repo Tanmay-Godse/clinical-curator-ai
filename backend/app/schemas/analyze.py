@@ -29,6 +29,7 @@ class AnalyzeFrameRequest(BaseModel):
     procedure_id: str
     stage_id: str
     skill_level: Literal["beginner", "intermediate"]
+    practice_surface: str | None = None
     image_base64: str = Field(min_length=1)
     student_question: str | None = None
     simulation_confirmation: bool = False

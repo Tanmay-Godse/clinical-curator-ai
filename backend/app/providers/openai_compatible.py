@@ -1,9 +1,21 @@
 import json
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
-from app.providers.base import AIRequestError, AIResponseError, JSONMessageRequest
+from app.providers.base import (
+    AIConfigurationError,
+    AIRequestError,
+    AIResponseError,
+    JSONMessageRequest,
+)
+
+PLACEHOLDER_API_KEYS = {
+    "SET_IN_ENV_MANAGER",
+    "SET_IN_MICROMAMBA_ENV",
+    "YOUR_REAL_KEY_HERE",
+}
 
 
 class OpenAICompatibleProvider:
@@ -19,38 +31,54 @@ class OpenAICompatibleProvider:
         self._timeout_seconds = timeout_seconds
 
     def send_json_message(self, request: JSONMessageRequest) -> dict[str, Any]:
+        api_key = self._api_key.strip() or "EMPTY"
+        if api_key.upper() in PLACEHOLDER_API_KEYS:
+            raise AIConfigurationError(
+                "AI_API_KEY is still set to a placeholder value. Inject the real key through your shell or micromamba environment first."
+            )
+
         headers = {
-            "Authorization": f"Bearer {self._api_key}",
+            "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
         }
+        provider_flavor = _provider_flavor(self._base_url)
+        payload_plan = _payload_plan_for_provider(provider_flavor)
+        response: httpx.Response | None = None
 
-        try:
-            response = self._post_json_message(
-                headers=headers,
-                payload=_build_payload(request=request, response_format_type="json_schema"),
-            )
-        except httpx.HTTPError as exc:
-            raise AIRequestError(
-                "The OpenAI-compatible request could not reach the configured model server."
-            ) from exc
+        for index, response_mode in enumerate(payload_plan):
+            try:
+                response = self._post_json_message(
+                    headers=headers,
+                    payload=_build_payload(
+                        request=request,
+                        response_format_type=response_mode,
+                        provider_flavor=provider_flavor,
+                    ),
+                )
+            except httpx.HTTPError as exc:
+                raise AIRequestError(
+                    "The OpenAI-compatible request could not reach the configured model server."
+                ) from exc
+
+            if response.status_code < 400:
+                break
+
+            has_next_attempt = index < len(payload_plan) - 1
+            if not has_next_attempt:
+                break
+
+            if not _should_try_next_payload(
+                response=response,
+                current_mode=response_mode,
+                next_mode=payload_plan[index + 1],
+            ):
+                break
+
+        if response is None:
+            raise AIResponseError("The model request did not receive a response.")
 
         if response.status_code >= 400:
-            if _should_retry_with_json_object(response):
-                try:
-                    response = self._post_json_message(
-                        headers=headers,
-                        payload=_build_payload(
-                            request=request,
-                            response_format_type="json_object",
-                        ),
-                    )
-                except httpx.HTTPError as exc:
-                    raise AIRequestError(
-                        "The OpenAI-compatible request could not reach the configured model server."
-                    ) from exc
-
-            if response.status_code >= 400:
-                raise AIRequestError(_extract_error_message(response))
+            raise AIRequestError(_extract_error_message(response))
 
         try:
             response_data = response.json()
@@ -69,7 +97,9 @@ class OpenAICompatibleProvider:
             ) from exc
 
         if not isinstance(parsed_payload, dict):
-            raise AIResponseError("The model server returned a JSON value that was not an object.")
+            raise AIResponseError(
+                "The model server returned a JSON value that was not an object."
+            )
 
         return parsed_payload
 
@@ -87,35 +117,76 @@ class OpenAICompatibleProvider:
         )
 
 
+def _provider_flavor(base_url: str) -> str:
+    parsed = urlparse(base_url.rstrip("/").lower())
+    if parsed.netloc.endswith("z.ai") or "bigmodel" in parsed.netloc:
+        return "zai"
+    return "generic"
+
+
+def _payload_plan_for_provider(provider_flavor: str) -> list[str | None]:
+    if provider_flavor == "zai":
+        return ["json_object", None]
+    return ["json_schema", "json_object", None]
+
+
+def _should_try_next_payload(
+    *,
+    response: httpx.Response,
+    current_mode: str | None,
+    next_mode: str | None,
+) -> bool:
+    if current_mode == "json_schema" and next_mode == "json_object":
+        return _should_retry_with_json_object(response)
+
+    if current_mode in {"json_schema", "json_object"} and next_mode is None:
+        return _should_retry_without_response_format(response)
+
+    return False
+
+
 def _build_payload(
     *,
     request: JSONMessageRequest,
-    response_format_type: str,
+    response_format_type: str | None,
+    provider_flavor: str,
 ) -> dict[str, Any]:
     system_prompt = request.system_prompt
-    response_format: dict[str, Any] = {"type": response_format_type}
 
-    if response_format_type == "json_schema":
-        response_format["json_schema"] = {
-            "name": "coach_response",
-            "schema": request.output_schema,
-        }
-    elif response_format_type == "json_object":
+    if response_format_type in {"json_object", None}:
         system_prompt = _system_prompt_with_embedded_schema(
             request.system_prompt,
             request.output_schema,
         )
 
-    return {
+    payload = {
         "model": request.model,
         "messages": [
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": _to_openai_content(request.user_content)},
+            {
+                "role": "user",
+                "content": _to_openai_content(
+                    request.user_content,
+                    provider_flavor=provider_flavor,
+                ),
+            },
         ],
         "max_tokens": request.max_tokens,
         "temperature": 0,
-        "response_format": response_format,
     }
+
+    if response_format_type == "json_schema":
+        payload["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "coach_response",
+                "schema": request.output_schema,
+            },
+        }
+    elif response_format_type == "json_object":
+        payload["response_format"] = {"type": "json_object"}
+
+    return payload
 
 
 def _system_prompt_with_embedded_schema(
@@ -141,6 +212,14 @@ def _should_retry_with_json_object(response: httpx.Response) -> bool:
     )
 
 
+def _should_retry_without_response_format(response: httpx.Response) -> bool:
+    if response.status_code not in {400, 404, 422}:
+        return False
+
+    error_message = _extract_error_message(response).lower()
+    return "response_format" in error_message or "json_object" in error_message
+
+
 def _chat_completions_url(base_url: str) -> str:
     normalized = base_url.rstrip("/")
     if normalized.endswith("/chat/completions"):
@@ -148,7 +227,11 @@ def _chat_completions_url(base_url: str) -> str:
     return f"{normalized}/chat/completions"
 
 
-def _to_openai_content(user_content: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def _to_openai_content(
+    user_content: list[dict[str, Any]],
+    *,
+    provider_flavor: str,
+) -> list[dict[str, Any]]:
     converted: list[dict[str, Any]] = []
 
     for item in user_content:
@@ -181,6 +264,11 @@ def _to_openai_content(user_content: list[dict[str, Any]]) -> list[dict[str, Any
             continue
 
         if item_type == "audio":
+            if provider_flavor == "zai":
+                raise AIRequestError(
+                    "Audio input is not supported for the configured Z.AI GLM chat-completions endpoint in this build."
+                )
+
             source = item.get("source")
             if not isinstance(source, dict):
                 raise AIRequestError("The audio payload is missing its source block.")
@@ -206,7 +294,9 @@ def _to_openai_content(user_content: list[dict[str, Any]]) -> list[dict[str, Any
             )
 
     if not converted:
-        raise AIRequestError("The model request did not include any usable user content.")
+        raise AIRequestError(
+            "The model request did not include any usable user content."
+        )
 
     return converted
 

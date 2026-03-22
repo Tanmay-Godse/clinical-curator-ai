@@ -38,7 +38,8 @@ AI_API_KEY=SET_IN_ENV_MANAGER
 With micromamba:
 
 ```bash
-micromamba env config vars set -n hackathon AI_API_KEY='your_real_key_here'
+micromamba env config vars set -n hackathon AI_API_KEY='your_claude_key_here'
+micromamba env config vars set -n hackathon TRANSCRIPTION_API_KEY='your_openai_key_here'
 micromamba deactivate
 micromamba activate hackathon
 ```
@@ -46,7 +47,8 @@ micromamba activate hackathon
 With a one-off shell export:
 
 ```bash
-export AI_API_KEY='your_real_key_here'
+export AI_API_KEY='your_claude_key_here'
+export TRANSCRIPTION_API_KEY='your_openai_key_here'
 ```
 
 If your backend is already running, restart it after changing the environment variable.
@@ -55,7 +57,7 @@ If your backend is already running, restart it after changing the environment va
 
 Recommended when:
 
-- each teammate can get their own Z.AI key
+- each teammate can get their own Claude and OpenAI transcription keys
 - you want isolated account databases
 - you do not want one shared backend machine
 
@@ -66,15 +68,18 @@ Each collaborator should:
 3. Set the backend model config with placeholders only:
 
 ```env
-AI_PROVIDER=auto
-AI_API_BASE_URL=https://api.z.ai/api/paas/v4
+AI_PROVIDER=anthropic
+AI_API_BASE_URL=https://api.anthropic.com/v1/messages
 AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=glm-4.6v-flash
-AI_DEBRIEF_MODEL=glm-4.6v-flash
-AI_COACH_MODEL=glm-4.6v-flash
+AI_ANALYSIS_MODEL=claude-sonnet-4-6
+AI_DEBRIEF_MODEL=claude-sonnet-4-6
+AI_COACH_MODEL=claude-sonnet-4-6
+TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
+TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
+TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 ```
 
-4. Store the real `AI_API_KEY` in their own shell or micromamba env.
+4. Store the real `AI_API_KEY` and `TRANSCRIPTION_API_KEY` in their own shell or micromamba env.
 5. Run the backend locally.
 6. Run the frontend locally.
 
@@ -87,7 +92,7 @@ Result:
 
 Recommended when:
 
-- only one teammate has or manages the Z.AI key
+- only one teammate manages the Claude and transcription keys
 - you want all account creation and sign-in to hit the same backend
 - you want the team to avoid local backend setup
 
@@ -95,7 +100,7 @@ One teammate or a private host should run:
 
 - the FastAPI backend
 - the SQLite account database
-- the Z.AI-backed model configuration
+- the Claude + OpenAI transcription configuration
 
 Other collaborators only need:
 
@@ -128,7 +133,7 @@ Useful checks:
 
 ```bash
 git check-ignore -v backend/.env backend/app/data/auth.db
-rg -uuu -n "sk-|api_key|AI_API_KEY|your_real_key_here" .
+rg -uuu -n "sk-|api_key|AI_API_KEY|TRANSCRIPTION_API_KEY|your_claude_key_here|your_openai_key_here" .
 git status --short
 ```
 

@@ -1,3 +1,5 @@
+import pytest
+
 from app.services import ai_client
 from app.providers import anthropic, openai_compatible
 
@@ -86,6 +88,7 @@ def test_send_json_message_converts_audio_payload(monkeypatch) -> None:
 
     monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
     monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "http://localhost:8000/v1")
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "EMPTY")
     monkeypatch.setattr(openai_compatible.httpx, "post", fake_post)
 
     response = ai_client.send_json_message(
@@ -139,6 +142,7 @@ def test_send_json_message_reads_nested_text_parts(monkeypatch) -> None:
 
     monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
     monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "http://localhost:8000/v1")
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "EMPTY")
     monkeypatch.setattr(openai_compatible.httpx, "post", fake_post)
 
     response = ai_client.send_json_message(
@@ -152,7 +156,7 @@ def test_send_json_message_reads_nested_text_parts(monkeypatch) -> None:
     assert response == {"step_status": "retry"}
 
 
-def test_send_json_message_retries_with_json_object_when_json_schema_is_rejected(
+def test_send_json_message_uses_json_object_first_for_zai_and_can_fallback_without_response_format(
     monkeypatch,
 ) -> None:
     captured_payloads = []
@@ -164,7 +168,7 @@ def test_send_json_message_retries_with_json_object_when_json_schema_is_rejected
                 status_code=400,
                 json_data={
                     "error": {
-                        "message": "response_format json_schema is not supported",
+                        "message": "response_format json_object is not supported for this model",
                     }
                 },
             )
@@ -203,10 +207,51 @@ def test_send_json_message_retries_with_json_object_when_json_schema_is_rejected
 
     assert response == {"ok": True}
     assert len(captured_payloads) == 2
-    assert captured_payloads[0]["response_format"]["type"] == "json_schema"
-    assert captured_payloads[1]["response_format"] == {"type": "json_object"}
-    assert "matches this schema exactly" in captured_payloads[1]["messages"][0]["content"]
-    assert '"required": [' in captured_payloads[1]["messages"][0]["content"]
+    assert captured_payloads[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in captured_payloads[1]
+    assert "matches this schema exactly" in captured_payloads[0]["messages"][0]["content"]
+    assert '"required": [' in captured_payloads[0]["messages"][0]["content"]
+
+
+def test_send_json_message_rejects_placeholder_api_key(monkeypatch) -> None:
+    monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
+    monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "https://api.z.ai/api/paas/v4")
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "SET_IN_ENV_MANAGER")
+
+    with pytest.raises(ai_client.AIConfigurationError):
+        ai_client.send_json_message(
+            model="glm-4.6v-flash",
+            max_tokens=200,
+            system_prompt="Return structured coaching.",
+            user_content=[{"type": "text", "text": "Analyze this frame."}],
+            output_schema={"type": "object"},
+        )
+
+
+def test_send_json_message_rejects_audio_for_zai(monkeypatch) -> None:
+    monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
+    monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "https://api.z.ai/api/paas/v4")
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "demo-key")
+
+    with pytest.raises(ai_client.AIRequestError):
+        ai_client.send_json_message(
+            model="glm-4.6v-flash",
+            max_tokens=200,
+            system_prompt="Return structured coaching.",
+            user_content=[
+                {"type": "text", "text": "Coach this learner."},
+                {
+                    "type": "audio",
+                    "source": {
+                        "type": "base64",
+                        "media_type": "audio/wav",
+                        "format": "wav",
+                        "data": "UklGRg==",
+                    },
+                },
+            ],
+            output_schema={"type": "object"},
+        )
 
 
 def test_send_json_message_auto_detects_anthropic_endpoint(monkeypatch) -> None:

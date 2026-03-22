@@ -4,7 +4,13 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { AppFrame } from "@/components/AppFrame";
 import { ReviewSummary } from "@/components/ReviewSummary";
+import {
+  buildSharedSidebarItems,
+  buildSharedTopItems,
+  DEFAULT_TRAINING_HREF,
+} from "@/lib/appShell";
 import { toApiEquityMode } from "@/lib/equity";
 import {
   buildLearnerProfileSnapshot,
@@ -158,8 +164,12 @@ export default function ReviewPage() {
     }
 
     const existingSession = getSession(sessionId);
-    setSession(existingSession);
-    setDebrief(existingSession ? getCachedDebrief(existingSession, null) : null);
+    const ownedSession =
+      existingSession?.ownerUsername === authUser.username
+        ? existingSession
+        : null;
+    setSession(ownedSession);
+    setDebrief(ownedSession ? getCachedDebrief(ownedSession, null) : null);
     setDebriefError(null);
     setIsDebriefLoading(false);
     setIsSessionLoading(false);
@@ -250,11 +260,7 @@ export default function ReviewPage() {
       return;
     }
 
-    if (
-      !isOnline &&
-      sessionSnapshot.equityMode.enabled &&
-      sessionSnapshot.equityMode.offlinePracticeLogging
-    ) {
+    if (!isOnline && sessionSnapshot.equityMode.offlinePracticeLogging) {
       setDebrief(null);
       setDebriefError(
         "Offline mode is active. Your practice history is still saved locally, and the AI debrief will retry once the device reconnects.",
@@ -346,100 +352,125 @@ export default function ReviewPage() {
     router.push("/login");
   }
 
+  const reviewHref = session ? `/review/${session.id}` : DEFAULT_TRAINING_HREF;
+  const sharedSidebarItems = buildSharedSidebarItems({
+    active: "review",
+    reviewHref,
+    userRole: authUser?.role ?? null,
+  });
+  const sharedTopItems = buildSharedTopItems({
+    reviewHref,
+    userRole: authUser?.role ?? null,
+  });
+
   if (!authUser || isSessionLoading) {
     return (
-      <main className="page-shell">
-        <div className="page-inner review-shell">
-          <div className="empty-state">
-            <h1 className="review-title">Loading review</h1>
-            <p className="review-subtle">
-              Loading the saved training session from browser storage.
-            </p>
-          </div>
-        </div>
-      </main>
+      <AppFrame
+        brandSubtitle="Deliberate review workflow"
+        pageTitle="Session Review"
+        sidebarItems={sharedSidebarItems}
+        statusPill={{ icon: "review", label: "loading session" }}
+        topItems={sharedTopItems}
+        userName={authUser?.name ?? null}
+      >
+        <section className="dashboard-card dashboard-frame-panel">
+          <span className="dashboard-card-eyebrow">Preparing Review</span>
+          <h2>Loading the saved training session.</h2>
+          <p>Loading the attempts, review trail, and latest debrief.</p>
+        </section>
+      </AppFrame>
     );
   }
 
   if (!session) {
     return (
-      <main className="page-shell">
-        <div className="page-inner review-shell">
-          <div className="empty-state">
-            <h1 className="review-title">No local session found</h1>
-            <p className="review-subtle">
-              Start a training session first so the review page has recorded attempts to load.
-            </p>
-            <div
-              className="review-actions"
-              style={{ justifyContent: "center", marginTop: 18 }}
-            >
-              <Link className="button-primary" href="/train/simple-interrupted-suture">
-                Return to Trainer
-              </Link>
-            </div>
+      <AppFrame
+        brandSubtitle="Deliberate review workflow"
+        footerPrimaryAction={{
+          href: DEFAULT_TRAINING_HREF,
+          icon: "play",
+          label: "Start New Session",
+          strong: true,
+        }}
+        footerSecondaryActions={[{ href: "/dashboard", icon: "dashboard", label: "Dashboard" }]}
+        pageTitle="Session Review"
+        sidebarItems={sharedSidebarItems}
+        statusPill={{ icon: "review", label: "no saved session" }}
+        topActions={[{ href: DEFAULT_TRAINING_HREF, label: "Open Trainer", strong: true }]}
+        topItems={sharedTopItems}
+        userName={authUser.name}
+      >
+        <section className="dashboard-card dashboard-frame-panel">
+          <span className="dashboard-card-eyebrow">No Local Review Found</span>
+          <h2>There is no saved session attached to this review link.</h2>
+          <p>Start a training session first so there is something to review.</p>
+          <div className="dashboard-frame-actions">
+            <Link className="dashboard-primary-button" href={DEFAULT_TRAINING_HREF}>
+              Start training
+            </Link>
+            <Link className="dashboard-action-pill" href="/dashboard">
+              Back to dashboard
+            </Link>
           </div>
-        </div>
-      </main>
+        </section>
+      </AppFrame>
     );
   }
 
   return (
-    <main className="page-shell review-page-shell">
-      <div className="page-inner review-shell">
-        <header className="page-header">
-          <div className="brand">
-            <span className="brand-mark">AC</span>
-            <span>Session Review</span>
-          </div>
-          <div className="button-row">
-            <span className="pill">Phase 3 session review</span>
-            <span className="pill">{isOnline ? "Online" : "Offline"}</span>
-            <span className="pill">
-              {authUser.name} · {authUser.role}
-            </span>
-            <Link className="button-ghost" href="/">
-              Home
-            </Link>
-            {authUser.role === "admin" ? (
-              <Link className="button-ghost" href="/admin/reviews">
-                Admin Queue
-              </Link>
-            ) : null}
-            <Link className="button-secondary" href={`/train/${session.procedureId}`}>
-              Back to Trainer
-            </Link>
-            <button className="button-secondary" onClick={handleLogout}>
-              Logout
-            </button>
-          </div>
-        </header>
-
-        <section className="trainer-intro-strip review-intro-strip">
+    <AppFrame
+      brandSubtitle="Deliberate review workflow"
+      footerPrimaryAction={{
+        href: DEFAULT_TRAINING_HREF,
+        icon: "play",
+        label: "Start New Session",
+        strong: true,
+      }}
+      footerSecondaryActions={[
+        { href: "/dashboard", icon: "dashboard", label: "Dashboard" },
+        { icon: "logout", label: "Logout", onClick: handleLogout },
+      ]}
+      pageTitle="Session Review"
+      sidebarItems={sharedSidebarItems}
+      topActions={[
+        ...(authUser.role === "admin"
+          ? [{ href: "/admin/reviews", label: "Admin Queue" }]
+          : []),
+        { href: `/train/${session.procedureId}`, label: "Back to Trainer", strong: true },
+      ]}
+      topItems={sharedTopItems}
+      userName={authUser.name}
+    >
+      <section className="dashboard-card review-shell-banner">
+        <div className="review-shell-banner-copy">
           <div>
-            <span className="eyebrow">Session review</span>
-            <h1 className="trainer-hero-title">
-              Review what happened and plan the next reps.
-            </h1>
+            <span className="dashboard-card-eyebrow">Session Review</span>
+            <h2 className="review-shell-banner-title">Review the attempt and pick the next rep.</h2>
           </div>
-          <p className="body-copy">
-            Keep the attempt timeline, AI summary, and drill plan in one place so you can
-            quickly decide what to repeat in the next practice block.
+          <p className="review-shell-banner-text">
+            Keep the timeline, AI summary, and drill plan in one place.
           </p>
-        </section>
+        </div>
+        <div className="review-shell-banner-meta">
+          <span className="dashboard-meta-chip">{session.procedureId.replaceAll("-", " ")}</span>
+          <span className="dashboard-meta-chip">{session.skillLevel}</span>
+          <span className="dashboard-meta-chip">
+            {authUser.name} · {authUser.role}
+          </span>
+        </div>
+      </section>
 
-        <ReviewSummary
-          adaptiveDrill={debrief?.adaptive_drill ?? localAdaptiveDrill}
-          debrief={debrief}
-          debriefError={debriefError}
-          isDebriefLoading={isDebriefLoading}
-          isOnline={isOnline}
-          learnerProfile={learnerProfile}
-          procedure={procedure}
-          reviewCases={reviewCases}
-          session={session}
-        />
-      </div>
-    </main>
+      <ReviewSummary
+        adaptiveDrill={debrief?.adaptive_drill ?? localAdaptiveDrill}
+        debrief={debrief}
+        debriefError={debriefError}
+        isDebriefLoading={isDebriefLoading}
+        isOnline={isOnline}
+        learnerProfile={learnerProfile}
+        procedure={procedure}
+        reviewCases={reviewCases}
+        session={session}
+      />
+    </AppFrame>
   );
 }

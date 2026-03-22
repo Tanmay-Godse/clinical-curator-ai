@@ -24,7 +24,7 @@ type PreviewedAccount = {
 function getDefaultDestination(role: UserRole) {
   return role === "admin"
     ? "/admin/reviews"
-    : "/train/simple-interrupted-suture";
+    : "/dashboard";
 }
 
 function suggestUsername(identifier: string) {

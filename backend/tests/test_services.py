@@ -3,8 +3,9 @@ import pytest
 from app.schemas.analyze import AnalyzeFrameRequest, SafetyGateResult
 from app.schemas.coach import CoachChatRequest
 from app.schemas.debrief import DebriefRequest, DebriefEvent
+from app.schemas.knowledge import KnowledgePackRequest
 from app.schemas.review import ResolveReviewCaseRequest
-from app.services import analysis_service, coach_service, debrief_service
+from app.services import analysis_service, coach_service, debrief_service, knowledge_service
 from app.services.ai_client import AIRequestError, AIResponseError
 from app.services import review_queue_service, safety_service
 
@@ -233,7 +234,86 @@ def test_debrief_service_localizes_fallback_response() -> None:
     assert "coaching" in response.audio_script.lower() or "resumen" in response.audio_script.lower()
 
 
-def test_coach_service_sends_audio_to_model(monkeypatch) -> None:
+def test_knowledge_service_falls_back_when_ai_request_fails(monkeypatch) -> None:
+    monkeypatch.setattr(
+        knowledge_service,
+        "send_json_message",
+        lambda **_: (_ for _ in ()).throw(AIRequestError("boom")),
+    )
+
+    response = knowledge_service.generate_knowledge_pack(
+        KnowledgePackRequest(
+            procedure_id="simple-interrupted-suture",
+            skill_level="beginner",
+            feedback_language="en",
+            focus_area="needle entry consistency",
+            recent_issue_labels=["angle too shallow"],
+        )
+    )
+
+    assert "knowledge lab" in response.title.lower()
+    assert len(response.rapidfire_rounds) == 5
+    assert len(response.quiz_questions) == 5
+    assert len(response.flashcards) == 6
+    assert response.recommended_focus == "needle entry consistency"
+
+
+def test_knowledge_service_backfills_partial_ai_payload(monkeypatch) -> None:
+    monkeypatch.setattr(
+        knowledge_service,
+        "send_json_message",
+        lambda **_: {
+            "title": "Needle Entry Sprint",
+            "summary": "Quick review pack.",
+            "recommended_focus": "entry angle",
+            "celebration_line": "Nice round.",
+            "rapidfire_rounds": [
+                {
+                    "id": "rapid-1",
+                    "stage_id": "needle_entry",
+                    "prompt": "What matters most in needle entry?",
+                    "choices": [
+                        "Angle control",
+                        "Ignore framing",
+                        "Skip setup",
+                        "Tie immediately",
+                    ],
+                    "correct_index": 0,
+                    "explanation": "Entry angle affects the first bite.",
+                    "point_value": 12,
+                    "difficulty": "warmup",
+                }
+            ],
+            "quiz_questions": [],
+            "flashcards": [
+                {
+                    "id": "flash-1",
+                    "stage_id": "needle_entry",
+                    "front": "Needle Entry",
+                    "back": "Keep the entry point visible.",
+                    "memory_tip": "Slow down before the bite.",
+                    "point_value": 10,
+                }
+            ],
+        },
+    )
+
+    response = knowledge_service.generate_knowledge_pack(
+        KnowledgePackRequest(
+            procedure_id="simple-interrupted-suture",
+            skill_level="beginner",
+        )
+    )
+
+    assert response.title == "Needle Entry Sprint"
+    assert response.summary == "Quick review pack."
+    assert len(response.rapidfire_rounds) == 5
+    assert len(response.quiz_questions) == 5
+    assert len(response.flashcards) == 6
+    assert response.rapidfire_rounds[0].prompt == "What matters most in needle entry?"
+
+
+def test_coach_service_transcribes_audio_before_sending_to_model(monkeypatch) -> None:
     captured = {}
 
     def fake_send_json_message(**kwargs):
@@ -253,6 +333,11 @@ def test_coach_service_sends_audio_to_model(monkeypatch) -> None:
         "send_json_message",
         fake_send_json_message,
     )
+    monkeypatch.setattr(
+        coach_service.transcription_service,
+        "transcribe_audio_clip",
+        lambda **_: "Improve my entry angle",
+    )
 
     response = coach_service.generate_coach_turn(
         CoachChatRequest(
@@ -266,23 +351,16 @@ def test_coach_service_sends_audio_to_model(monkeypatch) -> None:
     )
 
     assert response.learner_goal_summary == "Improve my entry angle"
-    assert captured["request"]["user_content"][-1] == {
-        "type": "audio",
-        "source": {
-            "type": "base64",
-            "media_type": "audio/wav",
-            "format": "wav",
-            "data": "UklGRg==",
-        },
-    }
+    assert len(captured["request"]["user_content"]) == 1
+    assert captured["request"]["user_content"][0]["type"] == "text"
+    assert "Improve my entry angle" in captured["request"]["user_content"][0]["text"]
 
-
-def test_coach_service_surfaces_missing_vllm_audio_support(monkeypatch) -> None:
+def test_coach_service_blocks_when_transcription_fails(monkeypatch) -> None:
     monkeypatch.setattr(
-        coach_service,
-        "send_json_message",
+        coach_service.transcription_service,
+        "transcribe_audio_clip",
         lambda **_: (_ for _ in ()).throw(
-            AIRequestError("Please install vllm[audio] for audio support")
+            AIRequestError("The transcription endpoint returned an empty transcript.")
         ),
     )
 
@@ -298,8 +376,10 @@ def test_coach_service_surfaces_missing_vllm_audio_support(monkeypatch) -> None:
     )
 
     assert response.conversation_stage == "blocked"
-    assert "audio support" in response.coach_message.lower()
-    assert "typed" in response.plan_summary.lower()
+    assert "transcribe" in response.coach_message.lower()
+    assert "empty transcript" in response.coach_message.lower()
+    assert "type" in response.plan_summary.lower()
+    assert response.learner_goal_summary == ""
 
 
 def test_safety_service_blocks_without_simulation_confirmation() -> None:

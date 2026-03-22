@@ -21,6 +21,8 @@ def evaluate_safety_gate(
     procedure: ProcedureDefinition,
     stage: ProcedureStage,
 ) -> SafetyGateResult:
+    practice_surface = (payload.practice_surface or procedure.practice_surface).strip()
+
     if not payload.simulation_confirmation:
         return SafetyGateResult(
             status="blocked",
@@ -28,7 +30,7 @@ def evaluate_safety_gate(
             reason="Simulation-only confirmation is required before any analysis can run.",
             refusal_message=(
                 "Analysis was blocked because this product only supports simulation practice. "
-                "Confirm that the image shows an orange, banana, or foam pad before retrying."
+                f"Confirm that the image shows {practice_surface} before retrying."
             ),
         )
 
@@ -103,10 +105,12 @@ def _build_safety_user_content(
     procedure: ProcedureDefinition,
     stage: ProcedureStage,
 ) -> list[dict[str, Any]]:
+    practice_surface = (payload.practice_surface or procedure.practice_surface).strip()
+
     safety_context = {
         "procedure_title": procedure.title,
         "stage_title": stage.title,
-        "practice_surface": procedure.practice_surface,
+        "practice_surface": practice_surface,
         "student_question": payload.student_question or "",
         "allowed_scene_examples": [
             "orange practice surface",

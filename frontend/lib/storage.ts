@@ -3,10 +3,12 @@ import {
   createPersistedAuthAccount,
   previewPersistedAuthAccount,
   signInPersistedAuthAccount,
+  updatePersistedAuthAccount,
   type PersistedAuthAccount,
 } from "@/lib/api";
 import type {
   AuthUser,
+  CoachVoicePreset,
   CreateAuthAccountInput,
   DebriefResponse,
   EquityModeSettings,
@@ -15,13 +17,46 @@ import type {
   OfflinePracticeLog,
   SessionRecord,
   SkillLevel,
+  UpdateAuthAccountInput,
 } from "@/lib/types";
 
 const SESSIONS_KEY = "ai-clinical-skills-coach:sessions";
 const AUTH_USER_KEY = "ai-clinical-skills-coach:auth-user";
+const KNOWLEDGE_PROGRESS_PREFIX = "ai-clinical-skills-coach:knowledge-progress";
 
-function activeSessionKey(procedureId: string) {
-  return `ai-clinical-skills-coach:active:${procedureId}`;
+function activeSessionKey(procedureId: string, ownerUsername?: string) {
+  const normalizedOwner =
+    typeof ownerUsername === "string" && ownerUsername.trim()
+      ? normalizeUsername(ownerUsername)
+      : "";
+
+  return normalizedOwner
+    ? `ai-clinical-skills-coach:active:${normalizedOwner}:${procedureId}`
+    : `ai-clinical-skills-coach:active:${procedureId}`;
+}
+
+function knowledgeProgressKey(ownerUsername: string) {
+  return `${KNOWLEDGE_PROGRESS_PREFIX}:${normalizeUsername(ownerUsername)}`;
+}
+
+function normalizeCoachVoicePreset(value: unknown): CoachVoicePreset {
+  if (value === "guide_male") {
+    return "guide_female";
+  }
+
+  if (value === "mentor_male") {
+    return "mentor_female";
+  }
+
+  if (
+    value === "guide_female" ||
+    value === "mentor_female" ||
+    value === "system_default"
+  ) {
+    return value;
+  }
+
+  return "guide_female";
 }
 
 export function createDefaultEquityMode(): EquityModeSettings {
@@ -29,7 +64,7 @@ export function createDefaultEquityMode(): EquityModeSettings {
     enabled: false,
     feedbackLanguage: "en",
     audioCoaching: false,
-    coachVoice: "guide_male",
+    coachVoice: "guide_female",
     lowBandwidthMode: false,
     cheapPhoneMode: false,
     offlinePracticeLogging: true,
@@ -92,6 +127,7 @@ function normalizeSessionRecord(
     ? {
         ...createDefaultEquityMode(),
         ...session.equityMode,
+        coachVoice: normalizeCoachVoicePreset(session.equityMode.coachVoice),
       }
     : createDefaultEquityMode();
 
@@ -101,6 +137,14 @@ function normalizeSessionRecord(
     ownerUsername:
       typeof session.ownerUsername === "string" ? session.ownerUsername : undefined,
     skillLevel: session.skillLevel,
+    practiceSurface:
+      typeof session.practiceSurface === "string" ? session.practiceSurface : undefined,
+    simulationConfirmed:
+      typeof session.simulationConfirmed === "boolean"
+        ? session.simulationConfirmed
+        : false,
+    learnerFocus:
+      typeof session.learnerFocus === "string" ? session.learnerFocus : undefined,
     calibration: session.calibration ?? createDefaultCalibration(),
     equityMode,
     events: session.events,
@@ -153,6 +197,67 @@ function persistAuthUser(user: AuthUser): AuthUser {
   return user;
 }
 
+function migrateOwnerSessions(previousUsername: string, nextUsername: string) {
+  const previousNormalized = normalizeUsername(previousUsername);
+  const nextNormalized = normalizeUsername(nextUsername);
+
+  if (!previousNormalized || previousNormalized === nextNormalized) {
+    return;
+  }
+
+  const sessions = readSessions();
+  const touchedProcedures = new Set<string>();
+
+  for (const [sessionId, session] of Object.entries(sessions)) {
+    if (session.ownerUsername !== previousNormalized) {
+      continue;
+    }
+
+    sessions[sessionId] = {
+      ...session,
+      ownerUsername: nextNormalized,
+      updatedAt: new Date().toISOString(),
+    };
+    touchedProcedures.add(session.procedureId);
+  }
+
+  writeSessions(sessions);
+
+  for (const procedureId of touchedProcedures) {
+    const previousKey = activeSessionKey(procedureId, previousNormalized);
+    const nextKey = activeSessionKey(procedureId, nextNormalized);
+    const previousActiveId = window.localStorage.getItem(previousKey);
+
+    if (previousActiveId) {
+      window.localStorage.setItem(nextKey, previousActiveId);
+      window.localStorage.removeItem(previousKey);
+      continue;
+    }
+
+    const candidate = Object.values(sessions).find(
+      (session) =>
+        session.procedureId === procedureId && session.ownerUsername === nextNormalized,
+    );
+
+    if (candidate) {
+      window.localStorage.setItem(nextKey, candidate.id);
+    }
+  }
+
+  const previousKnowledgeProgressKey = knowledgeProgressKey(previousNormalized);
+  const nextKnowledgeProgressKey = knowledgeProgressKey(nextNormalized);
+  const previousKnowledgeProgress =
+    window.localStorage.getItem(previousKnowledgeProgressKey);
+
+  if (previousKnowledgeProgress) {
+    if (!window.localStorage.getItem(nextKnowledgeProgressKey)) {
+      window.localStorage.setItem(nextKnowledgeProgressKey, previousKnowledgeProgress);
+    }
+
+    window.localStorage.removeItem(previousKnowledgeProgressKey);
+  }
+}
+
 function isValidDebriefResponse(response: Partial<DebriefResponse>): response is DebriefResponse {
   return (
     typeof response.feedback_language === "string" &&
@@ -174,7 +279,10 @@ export function saveSession(session: SessionRecord): SessionRecord {
   const sessions = readSessions();
   sessions[session.id] = session;
   writeSessions(sessions);
-  window.localStorage.setItem(activeSessionKey(session.procedureId), session.id);
+  window.localStorage.setItem(
+    activeSessionKey(session.procedureId, session.ownerUsername),
+    session.id,
+  );
   return session;
 }
 
@@ -188,13 +296,22 @@ export function listSessions(): SessionRecord[] {
   );
 }
 
+export function listSessionsForOwner(ownerUsername: string): SessionRecord[] {
+  const normalizedOwner = normalizeUsername(ownerUsername);
+  return listSessions().filter(
+    (session) => session.ownerUsername === normalizedOwner,
+  );
+}
+
 export function listSessionsForOwnerProcedure(
   ownerUsername: string,
   procedureId: string,
 ): SessionRecord[] {
+  const normalizedOwner = normalizeUsername(ownerUsername);
   return listSessions().filter(
     (session) =>
-      session.procedureId === procedureId && session.ownerUsername === ownerUsername,
+      session.procedureId === procedureId &&
+      session.ownerUsername === normalizedOwner,
   );
 }
 
@@ -234,6 +351,45 @@ export async function signInAuthUser(input: LoginAuthInput): Promise<AuthUser> {
     role: input.role,
   });
   return persistAuthUser(toAuthUser(account));
+}
+
+export async function updateAuthUserProfile(
+  input: UpdateAuthAccountInput,
+): Promise<AuthUser> {
+  ensureBrowserStorage();
+
+  const currentUser = getAuthUser();
+  if (!currentUser) {
+    throw new Error("Sign in again before editing the workspace profile.");
+  }
+
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error("Display name is required.");
+  }
+
+  const username = validateUsername(input.username);
+  const currentPassword = validatePassword(input.currentPassword);
+  const newPassword = input.newPassword?.trim()
+    ? validatePassword(input.newPassword)
+    : undefined;
+
+  const account = await updatePersistedAuthAccount(currentUser.accountId, {
+    name,
+    username,
+    currentPassword,
+    newPassword,
+  });
+
+  migrateOwnerSessions(currentUser.username, account.username);
+
+  return persistAuthUser({
+    ...currentUser,
+    accountId: account.id,
+    name: account.name,
+    username: account.username,
+    role: account.role,
+  });
 }
 
 export async function previewAuthAccount(
@@ -319,6 +475,8 @@ export function buildSessionReviewSignature(
     events: session.events,
     skillLevel: session.skillLevel,
     equityMode: session.equityMode,
+    practiceSurface: session.practiceSurface,
+    simulationConfirmed: session.simulationConfirmed,
     learnerProfile,
   });
 }
@@ -373,6 +531,7 @@ export function createSession(
     procedureId,
     ownerUsername,
     skillLevel,
+    simulationConfirmed: false,
     calibration: createDefaultCalibration(),
     equityMode: createDefaultEquityMode(),
     events: [],
@@ -396,12 +555,42 @@ export function getOrCreateActiveSession(
   skillLevel: SkillLevel,
   ownerUsername?: string,
 ): SessionRecord {
-  const activeId = window.localStorage.getItem(activeSessionKey(procedureId));
+  const normalizedOwner =
+    typeof ownerUsername === "string" && ownerUsername.trim()
+      ? normalizeUsername(ownerUsername)
+      : undefined;
+  const preferredKeys = normalizedOwner
+    ? [
+        activeSessionKey(procedureId, normalizedOwner),
+        activeSessionKey(procedureId),
+      ]
+    : [activeSessionKey(procedureId)];
 
-  if (activeId) {
+  for (const key of preferredKeys) {
+    const activeId = window.localStorage.getItem(key);
+    if (!activeId) {
+      continue;
+    }
+
     const existing = getSession(activeId);
-    if (existing) {
+    if (!existing) {
+      continue;
+    }
+
+    if (!normalizedOwner) {
       return existing;
+    }
+
+    if (existing.ownerUsername === normalizedOwner) {
+      return existing;
+    }
+
+    if (!existing.ownerUsername) {
+      return saveSession({
+        ...existing,
+        ownerUsername: normalizedOwner,
+        updatedAt: new Date().toISOString(),
+      });
     }
   }
 

@@ -1,115 +1,25 @@
 # Local Setup Guide
 
-This guide walks through the full local setup for AI Clinical Skills Coach, including OpenAI-compatible and Anthropic-style AI backends, the workspace account flow, and the new equity-mode features.
+This guide explains the current local demo setup and the trainer behavior that
+the UI exposes today. Older model-server notes have been removed so this stays
+aligned with the actual project.
 
-If you want the shortest OS-specific quickstart first, use `docs/how-to-run.md`.
+## Current Stack
 
-## 1. Prerequisites
+- `Frontend`: Next.js app with dashboard, knowledge lab, library, profile, trainer, and review flows
+- `Backend`: FastAPI app with procedure loading, safety gate, analysis, coaching, review queue, and debrief generation
+- `Main model`: `claude-sonnet-4-6`
+- `Speech-to-text`: `gpt-4o-mini-transcribe`
+- `Session storage`: browser `localStorage`
+- `Accounts`: local demo accounts persisted through the backend
 
-Recommended local tooling:
+## Local Services
 
-- `Node.js` 20 or newer
-- `npm` 10 or newer
-- `Python` 3.10 or newer
-- a webcam if you want to test the live trainer flow
+- frontend: `http://localhost:3000`
+- backend: `http://localhost:8001`
+- API base for frontend: `http://localhost:8001/api/v1`
 
-Notes:
-
-- the backend test run in this workspace is passing on Python `3.10.11`
-- the frontend uses Next `16.x`, React `19.x`, and TypeScript `5.x`
-
-## 2. Open the Repository
-
-If you already have the repo locally:
-
-```bash
-cd CodeStormers-Claude_Hackathon
-```
-
-If you are cloning it fresh:
-
-```bash
-git clone <your-repo-url>
-cd CodeStormers-Claude_Hackathon
-```
-
-## 3. Start or Choose an AI Endpoint
-
-The backend now supports two AI endpoint styles:
-
-- OpenAI-compatible endpoints such as local vLLM
-- Anthropic-style Messages endpoints
-
-The backend auto-detects which one to use from `AI_API_BASE_URL` unless you override it with `AI_PROVIDER`.
-
-### Option A: OpenAI-Compatible Example with vLLM
-
-Recommended when you want to run local Qwen models.
-
-Example server:
-
-```bash
-vllm serve chaitnya26/Qwen2.5-Omni-3B-Fork --port 8000 --api-key EMPTY
-```
-
-Quick model check:
-
-```bash
-curl -H 'Authorization: Bearer EMPTY' http://localhost:8000/v1/models
-```
-
-Good model choices:
-
-- `chaitnya26/Qwen2.5-Omni-3B-Fork`: good single-model option for both analysis and debrief
-- `Qwen/Qwen2.5-VL-3B-Instruct`: lighter vision-capable option
-
-Do not use:
-
-- text-only models for `/api/v1/analyze-frame`
-
-This guide assumes vLLM stays on port `8000` and the FastAPI backend runs on port `8001`.
-
-### Option B: Hosted OpenAI-Compatible Endpoint with Z.AI
-
-Use this when you want a shared hosted multimodal endpoint instead of running a local model server on one laptop.
-
-Example base URL:
-
-```text
-https://api.z.ai/api/paas/v4
-```
-
-Suggested model choice:
-
-- `glm-4.6v-flash`: free hosted multimodal model for image analysis, typed coach turns, and debrief generation
-
-If you use this option, you can skip the local vLLM terminal entirely.
-
-### Option C: Anthropic-Style Endpoint
-
-Use an Anthropic-compatible `/messages` endpoint if you want to run against Anthropic directly or through a compatible proxy.
-
-Example base URL:
-
-```text
-https://api.anthropic.com/v1/messages
-```
-
-If your proxy URL does not obviously look like Anthropic, set `AI_PROVIDER=anthropic` explicitly.
-
-## 4. Backend Setup
-
-### PowerShell
-
-```powershell
-cd backend
-python -m venv .venv
-.\.venv\Scripts\Activate.ps1
-pip install -r requirements.txt
-Copy-Item .env.example .env
-```
-
-### Bash
+## Backend Setup
 
 ```bash
 cd backend
@@ -119,71 +29,19 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-### Backend Environment
-
-Open `backend/.env` and choose one of these patterns.
-
-#### OpenAI-Compatible or vLLM
+Recommended `backend/.env`:
 
 ```env
 FRONTEND_ORIGIN=http://localhost:3000
 SIMULATION_ONLY=true
-AI_PROVIDER=auto
-AI_API_BASE_URL=http://localhost:8000/v1
-AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-AI_COACH_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-AI_TIMEOUT_SECONDS=60
-AI_ANALYSIS_MAX_TOKENS=1400
-AI_DEBRIEF_MAX_TOKENS=1200
-AI_SAFETY_MAX_TOKENS=600
-HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
-GRADING_CONFIDENCE_THRESHOLD=0.80
-```
 
-#### Hosted Z.AI
-
-```env
-FRONTEND_ORIGIN=http://localhost:3000
-SIMULATION_ONLY=true
-AI_PROVIDER=auto
-AI_API_BASE_URL=https://api.z.ai/api/paas/v4
-AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=glm-4.6v-flash
-AI_DEBRIEF_MODEL=glm-4.6v-flash
-AI_COACH_MODEL=glm-4.6v-flash
-AI_TIMEOUT_SECONDS=60
-AI_ANALYSIS_MAX_TOKENS=1400
-AI_DEBRIEF_MAX_TOKENS=1200
-AI_SAFETY_MAX_TOKENS=600
-HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
-GRADING_CONFIDENCE_THRESHOLD=0.80
-```
-
-Use this when you want a shared hosted vision model and do not want to run a local model server.
-
-Recommended for an open repo:
-
-```bash
-micromamba env config vars set -n hackathon AI_API_KEY='your_real_key_here'
-micromamba deactivate
-micromamba activate hackathon
-```
-
-Keep the checked-out `backend/.env` file on a placeholder such as `AI_API_KEY=SET_IN_ENV_MANAGER`.
-
-#### Anthropic-Style
-
-```env
-FRONTEND_ORIGIN=http://localhost:3000
-SIMULATION_ONLY=true
-AI_PROVIDER=auto
+AI_PROVIDER=anthropic
 AI_API_BASE_URL=https://api.anthropic.com/v1/messages
 AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=your_vision_capable_model
-AI_DEBRIEF_MODEL=your_text_or_multimodal_model
-AI_COACH_MODEL=your_text_or_multimodal_model
+AI_ANALYSIS_MODEL=claude-sonnet-4-6
+AI_DEBRIEF_MODEL=claude-sonnet-4-6
+AI_COACH_MODEL=claude-sonnet-4-6
+
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
@@ -191,42 +49,20 @@ AI_SAFETY_MAX_TOKENS=600
 HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
 GRADING_CONFIDENCE_THRESHOLD=0.80
 ANTHROPIC_VERSION=2023-06-01
+
+TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
+TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
+TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+TRANSCRIPTION_TIMEOUT_SECONDS=60
 ```
 
-### Auto-Detection Rules
-
-With `AI_PROVIDER=auto`:
-
-- `anthropic.com` URLs are treated as Anthropic
-- URLs ending in `/messages` are treated as Anthropic
-- everything else is treated as OpenAI-compatible
-
-Older environment names such as `OPENAI_API_BASE_URL` and `ANTHROPIC_API_KEY` still work as aliases, but `AI_*` is the preferred format.
-
-### Start the Backend
+Start the backend:
 
 ```bash
 uvicorn app.main:app --reload --port 8001
 ```
 
-Expected result:
-
-```text
-Uvicorn running on http://127.0.0.1:8001
-```
-
-## 5. Frontend Setup
-
-### PowerShell
-
-```powershell
-cd frontend
-npm install
-Copy-Item .env.local.example .env.local
-npm run dev
-```
-
-### Bash
+## Frontend Setup
 
 ```bash
 cd frontend
@@ -235,186 +71,121 @@ cp .env.local.example .env.local
 npm run dev
 ```
 
-In this repo, `npm run dev` uses a Webpack-backed Next.js dev server for local stability.
-
-Default frontend environment:
+Frontend env:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 ```
 
-This should point at the backend API, not at your model server.
+## Main Routes
 
-## 6. Open the App
+- `/dashboard`: default app landing page
+- `/knowledge`: gamified study and flashcard mode
+- `/train/simple-interrupted-suture`: live trainer
+- `/library`: learning library
+- `/profile`: local account profile and editing
+- `/review/[sessionId]`: session review and debrief
+- `/admin/reviews`: faculty review queue
 
-Visit:
+## Live Trainer Behavior
 
-```text
-http://localhost:3000
-```
+The trainer is intentionally constrained for the hackathon demo:
 
-You should see the landing page for AI Clinical Skills Coach.
+- each camera run is limited to `2 minutes`
+- the recurring camera-based coach refresh runs every `5 seconds`
+- the voice loop listens continuously between coach turns when `Audio coaching` is on
+- the camera surface itself stays clean while live; setup overlays are not drawn on top of the video
 
-## 7. Create a Workspace Account
+## Setup Panel Features
 
-Before entering the trainer or admin queue, open the workspace account flow:
+### Equity mode
 
-```text
-http://localhost:3000/login
-```
+What it does:
 
-On first use:
+- tells the backend to keep coaching and debrief language plainer and more access-focused
+- still preserves the selected feedback language
 
-- choose `Create Account`
-- enter a display name, username, password, and role
-- submit the form to create a SQLite-backed workspace account
+What it does not do:
 
-Students should use the `student` role for the trainer and review flow. Faculty or senior reviewers should use the `admin` role for the validation queue.
+- it does not automatically turn on the other toggles
 
-Account records are stored in backend SQLite. Training sessions are still stored in the browser that created them.
+### Simulation-only confirmation
 
-## 8. First-Run Verification
+What it does:
 
-Before testing the trainer UI, verify the backend from another terminal.
+- blocks frame analysis until the learner confirms the camera shows a safe practice surface
+- allows the coach to start using fresh camera frames for guidance
 
-### Health Check
+### Audio coaching
+
+What it does:
+
+- enables spoken coaching playback
+- primes microphone access when the camera starts
+- keeps the hands-free loop running: coach speaks, listens, transcribes, and replies
+
+### Low-bandwidth capture
+
+What it does:
+
+- compresses captured analysis frames more aggressively
+- lowers uploaded frame size so slower connections stay usable
+
+Current implementation:
+
+- uploaded frames target a smaller long edge and lower JPEG quality
+- changing this while the camera is live now refreshes the stream with the smaller capture profile
+
+### Cheap-phone profile
+
+What it does:
+
+- asks the browser for a lighter live camera stream
+- helps older or weaker devices keep the preview stable
+
+Current implementation:
+
+- the camera stream is requested at a smaller target resolution
+- changing this while the camera is live now refreshes the stream with the lighter profile
+
+### Offline-first logging
+
+What it does:
+
+- saves a local offline practice log when analysis is requested while the device is offline
+- prevents those attempts from being silently lost
+
+Current implementation:
+
+- offline logs are stored in browser storage and surfaced again on the review flow
+
+## Review Flow Notes
+
+- debrief requests still need network access
+- if `Offline-first logging` is enabled and the device is offline, the review page keeps the local history visible and waits to regenerate the AI debrief until the device reconnects
+- debrief audio playback appears when `Audio coaching` was enabled for that session
+
+## Verification
+
+Backend smoke checks:
 
 ```bash
 curl http://localhost:8001/api/v1/health
-```
-
-Expected result:
-
-```json
-{"status":"ok","simulation_only":true}
-```
-
-### Procedure Metadata
-
-```bash
 curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
+curl -X POST http://localhost:8001/api/v1/knowledge-pack \
+  -H "Content-Type: application/json" \
+  -d '{"procedure_id":"simple-interrupted-suture","skill_level":"beginner","feedback_language":"en"}'
 ```
 
-### Model Server Check
-
-```bash
-curl -H 'Authorization: Bearer EMPTY' http://localhost:8000/v1/models
-```
-
-If you started vLLM with `--api-key EMPTY`, requests without the `Authorization` header will return `Unauthorized`.
-
-This should return:
-
-- the procedure id and title
-- simulation-only metadata
-- 7 stages
-- 8 named overlay targets
-
-### Analyze Endpoint
-
-```bash
-curl -X POST http://localhost:8001/api/v1/analyze-frame \
-  -H 'Content-Type: application/json' \
-  -d '{"procedure_id":"simple-interrupted-suture","stage_id":"needle_entry","skill_level":"beginner","image_base64":"ZmFrZQ==","simulation_confirmation":true,"feedback_language":"en","equity_mode":{"enabled":true,"audio_coaching":true,"low_bandwidth_mode":true,"cheap_phone_mode":false,"offline_practice_logging":true}}'
-```
-
-With a valid AI endpoint and a vision-capable model, this should return a response containing:
-
-- `analysis_mode`
-- `step_status`
-- `grading_decision`
-- `grading_reason` when the attempt is not scored
-- `confidence`
-- `visible_observations`
-- `issues`
-- `coaching_message`
-- `next_action`
-- `overlay_target_ids`
-- `score_delta`
-- `safety_gate`
-- `requires_human_review`
-- `review_case_id`
-
-Without `AI_API_BASE_URL`, this route returns `503`.
-
-If the upstream model request fails or returns invalid JSON, this route returns `502`.
-
-### Debrief Endpoint
-
-```bash
-curl -X POST http://localhost:8001/api/v1/debrief \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","feedback_language":"en","equity_mode":{"enabled":true,"audio_coaching":true,"low_bandwidth_mode":true,"cheap_phone_mode":false,"offline_practice_logging":true},"events":[]}'
-```
-
-This route always returns a structured debrief shape:
-
-- with empty `events`, it returns a simple default study summary
-- with non-empty `events`, it prefers model-backed output
-- it now also returns `equity_support_plan`, `audio_script`, `feedback_language`, a cross-session `error_fingerprint`, and one `adaptive_drill`
-- on smaller local models, non-empty AI-backed debriefs can take noticeably longer than the empty-event fallback response
-
-## 9. Trainer Walkthrough
-
-Once the backend and frontend are live:
-
-1. Sign in with a local `student` account.
-2. Open the suturing trainer.
-3. Enable the camera and confirm the simulation-only checkbox.
-4. Optionally turn on `Equity mode` to test:
-   - multilingual feedback
-   - audio coaching
-   - low-bandwidth image mode
-   - cheap-phone compatibility
-   - offline-first practice logging
-5. Capture a step with `Check My Step`.
-6. Finish the flow and open the review page to see:
-   - the AI debrief
-   - the personal error fingerprint across saved sessions
-   - the adaptive drill prescription
-   - the equity support plan
-   - the audio coaching script
-   - any offline-only practice logs
-
-## 10. Explore the Open Library
-
-The app now exposes a public learning-library page at:
-
-```text
-http://localhost:3000/library
-```
-
-That page points to the repository assets in:
-
-- `open-library/rubrics/`
-- `open-library/benchmark/`
-- `docs/safer-skills-roadmap.md`
-
-## 11. Human Review Queue
-
-Admin reviewers can open `http://localhost:3000/admin/reviews` after signing in from `/login?role=admin`.
-
-The queue collects:
-
-- safety-gate blocked sessions
-- low-confidence attempts
-- unclear or unsafe outcomes
-
-Each case can be resolved with reviewer notes, a corrected status, and rubric feedback.
-Each resolved case can also carry corrected coaching text back into the review flow.
-
-## 12. Quality Checks
-
-### Frontend
+Frontend checks:
 
 ```bash
 cd frontend
 npm run lint
 npm run typecheck
-npm run build
 ```
 
-### Backend
+Backend checks:
 
 ```bash
 cd backend
@@ -422,102 +193,20 @@ source .venv/bin/activate
 pytest
 ```
 
-## 13. Troubleshooting
+Verified smoke flow on `2026-03-22`:
 
-### The landing page loads but analysis returns `503`
+- login and account creation
+- dashboard render
+- library render
+- knowledge lab render
+- profile edit save
+- live trainer camera start
+- analysis request from `Check My Step`
+- review page load after a captured attempt
 
-Usually `AI_API_BASE_URL` is missing or empty in `backend/.env`.
+## Troubleshooting
 
-Check the file and restart `uvicorn` after updating it.
-
-### Analysis returns `502`
-
-Common reasons:
-
-- the upstream AI server is down
-- the configured model is not vision-capable
-- the model returned invalid or partial JSON
-- the provider type was auto-detected incorrectly for a custom proxy
-
-If you are using a custom Anthropic-compatible proxy, try setting:
-
-```env
-AI_PROVIDER=anthropic
-```
-
-### vLLM returns `Unauthorized`
-
-If you started the model server with `--api-key EMPTY`, verify it with:
-
-```bash
-curl -H 'Authorization: Bearer EMPTY' http://localhost:8000/v1/models
-```
-
-The backend already sends this header automatically through `AI_API_KEY=EMPTY`.
-
-### Frontend dev mode shows bundler or manifest errors
-
-This workspace uses `npm run dev` -> `next dev --webpack` for local stability.
-
-If the frontend still looks stuck, stop the dev server and start it again:
-
-```bash
-cd frontend
-npm run dev
-```
-
-### The review page shows local history but fallback debrief text
-
-This means the review page loaded the session correctly, but fresh debrief generation was unavailable or invalid. The app now falls back to a deterministic study summary so the flow still works.
-
-### The trainer keeps saying "Not graded - retake required"
-
-This usually means either:
-
-- the returned frame was marked `unclear`
-- model confidence fell below `GRADING_CONFIDENCE_THRESHOLD`
-- the safety gate blocked or paused autonomous scoring
-
-Try retaking the frame with steadier lighting, a clearer view of the practice surface, and better tool visibility.
-
-### The review page says no local session found
-
-The review page depends on browser `localStorage`.
-
-Use the same:
-
-- browser profile
-- machine
-- localStorage state
-
-that created the session during training.
-
-### Port `3000`, `8000`, or `8001` is already in use
-
-Run the service on a different port and update the dependent environment variable.
-
-Example backend:
-
-```bash
-uvicorn app.main:app --reload --port 8002
-```
-
-Then update:
-
-```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8002/api/v1
-```
-
-### `npm` or `node` is missing
-
-Install a current Node.js release, then rerun `npm install` in `frontend/`.
-
-## 14. Current Limitations
-
-- one supported procedure
-- browser-local session persistence, with SQLite-backed account persistence
-- login is local-only and intended for demo use
-- simulation-only educational framing
-- live analysis quality depends on image quality and model choice
-
-For teammate-specific setup patterns and shared-backend guidance, use `docs/team-setup.md`.
+- If the camera does not start, make sure the app is opened on `localhost`.
+- If the mic does not open, allow microphone permission and restart the camera.
+- If the coach cannot respond to learner voice, confirm the OpenAI transcription key is configured.
+- If the review page says the debrief is unavailable while offline, reconnect and refresh that session review.

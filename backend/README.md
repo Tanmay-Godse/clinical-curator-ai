@@ -1,21 +1,19 @@
 # Backend
 
-This package contains the FastAPI service for the AI Clinical Skills Coach backend.
+This package contains the FastAPI backend for AI Clinical Skills Coach.
 
 ## Responsibilities
 
 - serve procedure metadata to the frontend
-- validate analyze and debrief request payloads
-- run a simulation-only safety gate before coaching
-- route AI requests to either an OpenAI-compatible or Anthropic-style endpoint
+- run the simulation-only safety gate
+- send analysis, coaching, and debrief requests to `claude-sonnet-4-6`
+- transcribe learner voice with `gpt-4o-mini-transcribe`
 - validate and normalize AI responses
-- compute `score_delta` deterministically in Python
-- honor multilingual and equity-mode debrief settings
-- return stable fallback debrief content when the debrief AI path is unavailable
-- persist a lightweight human-review queue for flagged sessions
-- persist workspace accounts in a lightweight SQLite database
+- compute deterministic score changes
+- manage the faculty review queue
+- persist local demo accounts in SQLite
 
-## Setup
+## Local Setup
 
 ```bash
 python -m venv .venv
@@ -25,144 +23,81 @@ cp .env.example .env
 uvicorn app.main:app --reload --port 8001
 ```
 
-## Environment Reference
-
-Core settings:
+## Recommended Environment
 
 ```env
 FRONTEND_ORIGIN=http://localhost:3000
 SIMULATION_ONLY=true
-AI_PROVIDER=auto
-AI_API_BASE_URL=http://localhost:8000/v1
-AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
+
+AI_PROVIDER=anthropic
+AI_API_BASE_URL=https://api.anthropic.com/v1/messages
+AI_API_KEY=SET_IN_ENV_MANAGER
+AI_ANALYSIS_MODEL=claude-sonnet-4-6
+AI_DEBRIEF_MODEL=claude-sonnet-4-6
+AI_COACH_MODEL=claude-sonnet-4-6
+
 AI_TIMEOUT_SECONDS=60
 AI_ANALYSIS_MAX_TOKENS=1400
 AI_DEBRIEF_MAX_TOKENS=1200
 AI_SAFETY_MAX_TOKENS=600
 HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
+GRADING_CONFIDENCE_THRESHOLD=0.80
 ANTHROPIC_VERSION=2023-06-01
+
+TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
+TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
+TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+TRANSCRIPTION_TIMEOUT_SECONDS=60
 ```
 
-What each setting does:
+Keep real API keys out of tracked files.
 
-- `FRONTEND_ORIGIN`: allowed browser origin for CORS
-- `SIMULATION_ONLY`: keeps the backend in training-only mode
-- `AI_PROVIDER`: `auto`, `openai`, or `anthropic`
-- `AI_API_BASE_URL`: base URL for the upstream AI endpoint
-- `AI_API_KEY`: bearer key for OpenAI-compatible endpoints or key header for Anthropic
-- `AI_ANALYSIS_MODEL`: model used by `/api/v1/analyze-frame`
-- `AI_DEBRIEF_MODEL`: model used by `/api/v1/debrief`
-- `AI_TIMEOUT_SECONDS`: outbound request timeout
-- `AI_ANALYSIS_MAX_TOKENS`: max tokens for analysis responses
-- `AI_DEBRIEF_MAX_TOKENS`: max tokens for debrief responses
-- `AI_SAFETY_MAX_TOKENS`: max tokens for safety-gate classification
-- `HUMAN_REVIEW_CONFIDENCE_THRESHOLD`: confidence cutoff for automatic human escalation
-- `ANTHROPIC_VERSION`: only used for Anthropic-style requests
-
-Backward compatibility:
-
-- `OPENAI_*` and `ANTHROPIC_*` environment variables still work as aliases
-- `AI_PROVIDER=auto` is the preferred default going forward
-- for public repos, keep `AI_API_KEY` out of tracked files and inject it through your environment manager
-
-## Provider Auto-Detection
-
-When `AI_PROVIDER=auto`, the backend uses these rules:
-
-- if `AI_API_BASE_URL` points to `anthropic.com`, use Anthropic mode
-- if `AI_API_BASE_URL` ends with `/messages`, use Anthropic mode
-- otherwise, use OpenAI-compatible mode
-
-Use an explicit `AI_PROVIDER` override if your proxy URL is ambiguous.
-
-## Example Configurations
-
-### OpenAI-Compatible or vLLM
-
-```env
-AI_PROVIDER=auto
-AI_API_BASE_URL=http://localhost:8000/v1
-AI_API_KEY=EMPTY
-AI_ANALYSIS_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-AI_DEBRIEF_MODEL=chaitnya26/Qwen2.5-Omni-3B-Fork
-```
-
-Example local server:
-
-```bash
-vllm serve chaitnya26/Qwen2.5-Omni-3B-Fork --port 8000 --api-key EMPTY
-```
-
-The local docs assume vLLM stays on port `8000` and this FastAPI backend runs on port `8001`.
-Use a vision-capable model for `AI_ANALYSIS_MODEL`. Text-only models will not work for the analyze route.
-
-### Hosted Z.AI
-
-```env
-AI_PROVIDER=auto
-AI_API_BASE_URL=https://api.z.ai/api/paas/v4
-AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=glm-4.6v-flash
-AI_DEBRIEF_MODEL=glm-4.6v-flash
-AI_COACH_MODEL=glm-4.6v-flash
-```
-
-Use this when you want shared hosted image analysis and do not want to run a local model server on one teammate machine.
-
-### Anthropic-Style
-
-```env
-AI_PROVIDER=auto
-AI_API_BASE_URL=https://api.anthropic.com/v1/messages
-AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=your_vision_capable_model
-AI_DEBRIEF_MODEL=your_text_or_multimodal_model
-ANTHROPIC_VERSION=2023-06-01
-```
-
-### Open-Repo Secret Handling
-
-Recommended with micromamba:
-
-```bash
-micromamba env config vars set -n hackathon AI_API_KEY='your_real_key_here'
-micromamba deactivate
-micromamba activate hackathon
-```
-
-Keep `backend/.env` on a placeholder such as `AI_API_KEY=SET_IN_ENV_MANAGER`.
-
-## Endpoints
+## Main Endpoints
 
 - `GET /api/v1/health`
 - `GET /api/v1/auth/accounts/preview`
 - `POST /api/v1/auth/accounts`
 - `POST /api/v1/auth/sign-in`
+- `PUT /api/v1/auth/accounts/{account_id}`
 - `GET /api/v1/procedures/{id}`
+- `POST /api/v1/knowledge-pack`
 - `POST /api/v1/analyze-frame`
+- `POST /api/v1/coach-chat`
+- `POST /api/v1/tts`
 - `POST /api/v1/debrief`
 - `GET /api/v1/review-cases`
 - `POST /api/v1/review-cases/{case_id}/resolve`
 
-## Route Behavior
+## Current Route Notes
 
-`POST /api/v1/analyze-frame`:
+`POST /api/v1/analyze-frame`
 
-- returns `200` with validated analysis output
-- may return `analysis_mode="blocked"` when the safety gate refuses the image
-- accepts `feedback_language` and `equity_mode` so the AI can tailor coaching for lower-resource practice settings
-- returns `404` for unknown procedures or stages
-- returns `503` when live AI analysis is not configured
-- returns `502` when the upstream AI request fails or returns invalid JSON
+- requires a vision-capable Claude model
+- blocks analysis unless the request is confirmed as simulation-only
+- accepts `practice_surface`, `feedback_language`, and `equity_mode`
+- can return `analysis_mode="blocked"` without throwing an HTTP error
 
-`POST /api/v1/debrief`:
+`POST /api/v1/coach-chat`
 
-- returns `200` for both AI-backed and fallback debriefs
-- returns `feedback_language`, `equity_support_plan`, and `audio_script` in addition to the core study summary fields
-- returns `404` for unknown procedures
-- never requires the frontend to send provider-specific auth
+- supports text turns and learner voice turns
+- transcribes learner audio before sending the conversation to Claude
+- can use the current frame when `simulation_confirmation=true`
+
+`POST /api/v1/knowledge-pack`
+
+- returns rapidfire rounds, quiz questions, and flashcards
+- uses the cheaper learning model path with a rubric-based fallback
+
+`POST /api/v1/tts`
+
+- returns `audio/wav`
+- uses the selected coach voice preset for spoken playback
+
+`POST /api/v1/debrief`
+
+- returns an AI debrief when the backend is online
+- still normalizes the response into a stable study-summary shape
+- includes `equity_support_plan` and `audio_script`
 
 ## Testing
 
@@ -171,15 +106,22 @@ source .venv/bin/activate
 pytest
 ```
 
-The backend test suite covers:
+Focused checks used most often in this repo:
 
-- API status-code mapping
-- SQLite-backed auth routes and legacy password-hash upgrade behavior
-- provider auto-detection
-- overlay-target validation
-- fallback debrief behavior
-- partial debrief backfilling
-- localized fallback debrief behavior
+```bash
+./.venv/bin/pytest tests/test_services.py tests/test_api.py -q
+```
 
-For full app setup and troubleshooting, use `../docs/local-setup.md`.
-For collaborator setup and secret handling in an open repo, use `../docs/team-setup.md`.
+Smoke-tested locally on `2026-03-22`:
+
+- health
+- procedure load
+- auth preview and sign-in
+- knowledge pack
+- coach chat
+- analyze frame
+- debrief
+- TTS
+- review cases
+
+For full app setup, use [../docs/local-setup.md](../docs/local-setup.md).

@@ -51,6 +51,14 @@ class Settings(BaseSettings):
             "ANTHROPIC_COACH_MODEL",
         ),
     )
+    ai_learning_model: str = Field(
+        default="claude-haiku-4-5",
+        validation_alias=AliasChoices(
+            "AI_LEARNING_MODEL",
+            "OPENAI_LEARNING_MODEL",
+            "ANTHROPIC_LEARNING_MODEL",
+        ),
+    )
     ai_timeout_seconds: float = Field(
         default=60.0,
         validation_alias=AliasChoices(
@@ -91,6 +99,14 @@ class Settings(BaseSettings):
             "ANTHROPIC_SAFETY_MAX_TOKENS",
         ),
     )
+    ai_learning_max_tokens: int = Field(
+        default=1800,
+        validation_alias=AliasChoices(
+            "AI_LEARNING_MAX_TOKENS",
+            "OPENAI_LEARNING_MAX_TOKENS",
+            "ANTHROPIC_LEARNING_MAX_TOKENS",
+        ),
+    )
     human_review_confidence_threshold: float = Field(
         default=0.78,
         validation_alias=AliasChoices("HUMAN_REVIEW_CONFIDENCE_THRESHOLD"),
@@ -102,6 +118,36 @@ class Settings(BaseSettings):
     anthropic_version: str = Field(
         default="2023-06-01",
         validation_alias=AliasChoices("ANTHROPIC_VERSION"),
+    )
+    transcription_api_base_url: str = Field(
+        default="https://api.openai.com/v1",
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_API_BASE_URL",
+            "OPENAI_TRANSCRIPTION_API_BASE_URL",
+            "OPENAI_API_BASE_URL",
+        ),
+    )
+    transcription_api_key: str = Field(
+        default="EMPTY",
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_API_KEY",
+            "OPENAI_TRANSCRIPTION_API_KEY",
+            "OPENAI_API_KEY",
+        ),
+    )
+    transcription_model: str = Field(
+        default="gpt-4o-mini-transcribe",
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_MODEL",
+            "OPENAI_TRANSCRIPTION_MODEL",
+        ),
+    )
+    transcription_timeout_seconds: float = Field(
+        default=60.0,
+        validation_alias=AliasChoices(
+            "TRANSCRIPTION_TIMEOUT_SECONDS",
+            "OPENAI_TRANSCRIPTION_TIMEOUT_SECONDS",
+        ),
     )
 
     model_config = SettingsConfigDict(

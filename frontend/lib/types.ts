@@ -7,8 +7,8 @@ export type ReviewCaseStatus = "pending" | "resolved";
 export type AuthMode = "sign-in" | "create-account";
 export type FeedbackLanguage = "en" | "es" | "fr" | "hi";
 export type CoachVoicePreset =
-  | "guide_male"
-  | "mentor_male"
+  | "guide_female"
+  | "mentor_female"
   | "system_default";
 
 export type Point = {
@@ -51,6 +51,45 @@ export type ProcedureDefinition = {
   stages: ProcedureStage[];
 };
 
+export type KnowledgeMultipleChoiceQuestion = {
+  id: string;
+  stage_id: string;
+  prompt: string;
+  choices: string[];
+  correct_index: number;
+  explanation: string;
+  point_value: number;
+  difficulty: "warmup" | "core" | "challenge";
+};
+
+export type KnowledgeFlashcard = {
+  id: string;
+  stage_id: string;
+  front: string;
+  back: string;
+  memory_tip: string;
+  point_value: number;
+};
+
+export type KnowledgePackRequest = {
+  procedure_id: string;
+  skill_level: SkillLevel;
+  feedback_language: FeedbackLanguage;
+  learner_name?: string;
+  focus_area?: string;
+  recent_issue_labels?: string[];
+};
+
+export type KnowledgePackResponse = {
+  title: string;
+  summary: string;
+  recommended_focus: string;
+  celebration_line: string;
+  rapidfire_rounds: KnowledgeMultipleChoiceQuestion[];
+  quiz_questions: KnowledgeMultipleChoiceQuestion[];
+  flashcards: KnowledgeFlashcard[];
+};
+
 export type HealthStatus = {
   status: string;
   simulation_only: boolean;
@@ -65,6 +104,7 @@ export type CoachChatRequest = {
   procedure_id: string;
   stage_id: string;
   skill_level: SkillLevel;
+  practice_surface?: string;
   feedback_language: FeedbackLanguage;
   simulation_confirmation: boolean;
   image_base64?: string;
@@ -131,6 +171,7 @@ export type AnalyzeFrameRequest = {
   procedure_id: string;
   stage_id: string;
   skill_level: SkillLevel;
+  practice_surface?: string;
   image_base64: string;
   student_question?: string;
   simulation_confirmation: boolean;
@@ -284,6 +325,13 @@ export type LoginAuthInput = {
   role?: UserRole;
 };
 
+export type UpdateAuthAccountInput = {
+  name: string;
+  username: string;
+  currentPassword: string;
+  newPassword?: string;
+};
+
 export type ReviewCase = {
   id: string;
   status: ReviewCaseStatus;
@@ -327,6 +375,9 @@ export type SessionRecord = {
   procedureId: string;
   ownerUsername?: string;
   skillLevel: SkillLevel;
+  practiceSurface?: string;
+  simulationConfirmed?: boolean;
+  learnerFocus?: string;
   calibration: Calibration;
   equityMode: EquityModeSettings;
   events: SessionEvent[];

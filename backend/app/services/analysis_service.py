@@ -165,6 +165,8 @@ def _build_analysis_user_content(
     procedure: ProcedureDefinition,
     stage: ProcedureStage,
 ) -> list[dict[str, Any]]:
+    practice_surface = (payload.practice_surface or procedure.practice_surface).strip()
+
     allowed_targets = [
         {
             "id": target.id,
@@ -177,7 +179,7 @@ def _build_analysis_user_content(
 
     stage_context = {
         "procedure_title": procedure.title,
-        "practice_surface": procedure.practice_surface,
+        "practice_surface": practice_surface,
         "simulation_only": procedure.simulation_only,
         "skill_level": payload.skill_level,
         "feedback_language": payload.feedback_language,

@@ -9,6 +9,7 @@ from app.schemas.auth import (
     AuthAccountPreview,
     CreateAuthAccountRequest,
     SignInAuthRequest,
+    UpdateAuthAccountRequest,
 )
 
 AUTH_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "auth.db"
@@ -141,6 +142,100 @@ def sign_in_auth_user(payload: SignInAuthRequest) -> AuthAccountPreview:
     return account
 
 
+def update_auth_account(
+    account_id: str,
+    payload: UpdateAuthAccountRequest,
+) -> AuthAccountPreview:
+    account = _resolve_account_by_id(account_id)
+    if account is None:
+        raise AuthAccountNotFoundError(f"Account '{account_id}' was not found.")
+
+    name = payload.name.strip()
+    if not name:
+        raise AuthValidationError("Display name is required.")
+
+    username = _validate_username(payload.username)
+    current_password = _validate_password(payload.current_password)
+    new_password = (
+        _validate_password(payload.new_password)
+        if payload.new_password is not None and payload.new_password.strip()
+        else None
+    )
+
+    password_state = _read_password_state(account.id)
+    if not _verify_password(
+        password=current_password,
+        password_hash=str(password_state["password_hash"]),
+        password_salt=(
+            str(password_state["password_salt"])
+            if password_state["password_salt"] is not None
+            else None
+        ),
+        password_scheme=(
+            str(password_state["password_scheme"])
+            if password_state["password_scheme"] is not None
+            else None
+        ),
+    ):
+        raise AuthValidationError("Current password is incorrect.")
+
+    password_salt = None
+    password_hash = None
+    password_scheme = None
+    if new_password is not None:
+        password_salt = _generate_password_salt()
+        password_hash = _hash_password(
+            password=new_password,
+            salt=password_salt,
+            scheme=CURRENT_PASSWORD_SCHEME,
+        )
+        password_scheme = CURRENT_PASSWORD_SCHEME
+
+    with _connect() as connection:
+        try:
+            if new_password is not None:
+                connection.execute(
+                    """
+                    UPDATE auth_accounts
+                    SET name = ?, username = ?, normalized_display_name = ?,
+                        password_hash = ?, password_salt = ?, password_scheme = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        name,
+                        username,
+                        _normalize_display_name(name),
+                        password_hash,
+                        password_salt,
+                        password_scheme,
+                        account_id,
+                    ),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE auth_accounts
+                    SET name = ?, username = ?, normalized_display_name = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        name,
+                        username,
+                        _normalize_display_name(name),
+                        account_id,
+                    ),
+                )
+        except sqlite3.IntegrityError as exc:
+            raise AuthAccountConflictError(
+                "That username is already registered. Choose a different username."
+            ) from exc
+
+    updated = _resolve_account_by_id(account_id)
+    if updated is None:
+        raise AuthAccountNotFoundError(f"Account '{account_id}' was not found.")
+    return updated
+
+
 def _resolve_account(identifier: str) -> AuthAccountPreview | None:
     normalized_identifier = _normalize_username(identifier)
     normalized_display_name = _normalize_display_name(identifier)
@@ -171,6 +266,23 @@ def _resolve_account(identifier: str) -> AuthAccountPreview | None:
         )
 
     row = username_match or (display_name_matches[0] if display_name_matches else None)
+    if row is None:
+        return None
+
+    return _row_to_preview(row)
+
+
+def _resolve_account_by_id(account_id: str) -> AuthAccountPreview | None:
+    with _connect() as connection:
+        row = connection.execute(
+            """
+            SELECT id, name, username, role, created_at
+            FROM auth_accounts
+            WHERE id = ?
+            """,
+            (account_id,),
+        ).fetchone()
+
     if row is None:
         return None
 

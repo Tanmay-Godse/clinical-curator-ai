@@ -121,11 +121,12 @@ export function ReviewSummary({
             </p>
           </article>
           <article className="metric-card">
-            <p className="metric-label">Equity mode</p>
+            <p className="metric-label">Feedback setup</p>
             <p className="metric-value">
-              {session.equityMode.enabled
-                ? getFeedbackLanguageLabel(session.equityMode.feedbackLanguage)
-                : "Standard"}
+              {getFeedbackLanguageLabel(session.equityMode.feedbackLanguage)}
+            </p>
+            <p className="review-subtle" style={{ marginTop: 10 }}>
+              {session.equityMode.enabled ? "Equity mode on" : "Standard coaching tone"}
             </p>
           </article>
           <article className="metric-card">
@@ -266,8 +267,7 @@ export function ReviewSummary({
                 </ul>
               </section>
 
-              {session.equityMode.enabled &&
-              session.equityMode.audioCoaching ? (
+              {session.equityMode.audioCoaching ? (
                 <section className="debrief-block">
                   <strong>Audio coaching</strong>
                   <p className="review-subtle" style={{ marginTop: 10 }}>

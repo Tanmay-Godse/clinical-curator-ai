@@ -4,6 +4,7 @@ from app.schemas.auth import (
     AuthAccountPreview,
     CreateAuthAccountRequest,
     SignInAuthRequest,
+    UpdateAuthAccountRequest,
 )
 from app.services import auth_service
 from app.services.auth_service import (
@@ -58,3 +59,18 @@ def sign_in_auth_user(payload: SignInAuthRequest) -> AuthAccountPreview:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except AuthValidationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+
+
+@router.put("/auth/accounts/{account_id}", response_model=AuthAccountPreview)
+def update_auth_account(
+    account_id: str,
+    payload: UpdateAuthAccountRequest,
+) -> AuthAccountPreview:
+    try:
+        return auth_service.update_auth_account(account_id, payload)
+    except AuthAccountNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except AuthAccountConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except AuthValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc

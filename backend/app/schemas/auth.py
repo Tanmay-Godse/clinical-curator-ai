@@ -28,3 +28,12 @@ class SignInAuthRequest(BaseModel):
     identifier: str
     password: str
     role: Literal["student", "admin"] | None = None
+
+
+class UpdateAuthAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    username: str
+    current_password: str
+    new_password: str | None = None

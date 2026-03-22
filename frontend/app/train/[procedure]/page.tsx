@@ -4,12 +4,22 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CameraFeed, type CameraFeedHandle } from "@/components/CameraFeed";
-import { CalibrationOverlay } from "@/components/CalibrationOverlay";
+import { AppFrame } from "@/components/AppFrame";
+import {
+  CameraFeed,
+  INITIAL_CAMERA_FEED_STATUS,
+  type CameraFeedHandle,
+  type CameraFeedState,
+  type CameraFeedStatus,
+} from "@/components/CameraFeed";
 import { FeedbackCard } from "@/components/FeedbackCard";
-import { OverlayRenderer } from "@/components/OverlayRenderer";
 import { ProcedureStepper } from "@/components/ProcedureStepper";
 import { VoiceCoachPanel } from "@/components/VoiceCoachPanel";
+import {
+  buildSharedSidebarItems,
+  buildSharedTopItems,
+  DEFAULT_TRAINING_HREF,
+} from "@/lib/appShell";
 import {
   speakTextAndWait,
   startVoiceRecording,
@@ -19,7 +29,6 @@ import {
 } from "@/lib/audio";
 import {
   FEEDBACK_LANGUAGE_OPTIONS,
-  getFeedbackLanguageLabel,
   toApiEquityMode,
 } from "@/lib/equity";
 import { analyzeFrame, coachChat, getProcedure } from "@/lib/api";
@@ -36,7 +45,6 @@ import type {
   AnalyzeFrameResponse,
   AuthUser,
   Calibration,
-  CalibrationMode,
   CoachChatMessage,
   CoachChatResponse,
   EquityModeSettings,
@@ -47,12 +55,14 @@ import type {
   SkillLevel,
 } from "@/lib/types";
 
-const CAMERA_OVERLAY_TIMEOUT_MS = 10_000;
-const AUTO_COACH_INTERVAL_MS = 12_000;
+const AUTO_COACH_INTERVAL_MS = 5_000;
+const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
 const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
 const VOICE_RECORDING_MIN_SPEECH_MS = 400;
 const VOICE_RECORDING_SILENCE_DURATION_MS = 1_100;
-const VOICE_RELISTEN_DELAY_MS = 300;
+const VOICE_RELISTEN_DELAY_MS = 120;
+const VOICE_RECOVERY_RETRY_DELAY_MS = 250;
+const VOICE_PROACTIVE_REPROMPT_DELAY_MS = 500;
 const VOICE_PROACTIVE_REPROMPT_AFTER_SILENT_WINDOWS = 3;
 
 type VoiceSessionStatus =
@@ -63,6 +73,193 @@ type VoiceSessionStatus =
   | "listening"
   | "thinking"
   | "paused";
+
+type WorkspacePanel = "checklist" | "analysis" | "coach" | "setup";
+
+type PracticeSurfaceOption = {
+  label: string;
+  value: string;
+};
+
+type LiveShellIconProps = {
+  className?: string;
+};
+
+function ChecklistIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <rect height="14" rx="3" stroke="currentColor" strokeWidth="1.7" width="14" x="5" y="5" />
+      <path d="M8.5 9.5h6.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M8.5 13h6.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="m10 16.25 1.4 1.4L14.5 14.5" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+function AnalysisIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path d="M5 18.5h14" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M7.5 15.5v-4" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M12 15.5V8.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="M16.5 15.5v-2.75" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
+      <path d="m7 10.25 4.25-3.25 5 1.75 1.75-2" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+function CoachIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 4.75 13.5 8.5l3.75 1.5-3.75 1.5L12 15.25l-1.5-3.75-3.75-1.5 3.75-1.5L12 4.75Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+      <path d="m18.25 14 1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1 1-2.5Z" fill="currentColor" />
+      <path d="m5.75 14 0.8 2 2 0.8-2 0.8-0.8 2-0.8-2-2-0.8 2-0.8 0.8-2Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SetupIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 8.25A3.75 3.75 0 1 0 12 15.75A3.75 3.75 0 1 0 12 8.25Z" stroke="currentColor" strokeWidth="1.7" />
+      <path d="M19 12a7.41 7.41 0 0 0-.08-1l2.02-1.58-1.92-3.32-2.44.8a7.93 7.93 0 0 0-1.72-.99l-.42-2.53H10.6L10.18 5.9a7.93 7.93 0 0 0-1.72.99l-2.44-.8L4.1 9.41 6.12 11A8.35 8.35 0 0 0 6.04 12c0 .34.03.67.08 1L4.1 14.59l1.92 3.32 2.44-.8c.53.4 1.1.73 1.72.99l.42 2.53h3.84l.42-2.53c.62-.26 1.19-.59 1.72-.99l2.44.8 1.92-3.32L18.92 13c.05-.33.08-.66.08-1Z" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.4" />
+    </svg>
+  );
+}
+
+function CameraIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <rect height="10.5" rx="2.5" stroke="currentColor" strokeWidth="1.7" width="12.5" x="4.75" y="7.25" />
+      <path d="m17.25 10.25 2.5-1.5v6.5l-2.5-1.5" stroke="currentColor" strokeLinejoin="round" strokeWidth="1.7" />
+      <path d="M9 7.25 10.3 5.5h1.9l1.3 1.75" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
+    </svg>
+  );
+}
+
+function PlusIcon({ className }: LiveShellIconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="none"
+      viewBox="0 0 24 24"
+    >
+      <path d="M12 5.25v13.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+      <path d="M5.25 12h13.5" stroke="currentColor" strokeLinecap="round" strokeWidth="1.8" />
+    </svg>
+  );
+}
+
+function getCameraStatusTone(state: CameraFeedState): string {
+  switch (state) {
+    case "live":
+      return "status-pass";
+    case "requesting":
+      return "status-retry";
+    case "blocked":
+    case "unavailable":
+    case "disconnected":
+      return "status-unsafe";
+    default:
+      return "";
+  }
+}
+
+function getVoiceStatusHeadline(status: VoiceSessionStatus, cameraReady: boolean): string {
+  if (!cameraReady) {
+    return "Camera offline";
+  }
+
+  switch (status) {
+    case "starting":
+      return "Booting coach";
+    case "watching":
+      return "Watching the field";
+    case "speaking":
+      return "Delivering guidance";
+    case "listening":
+      return "Listening for learner";
+    case "thinking":
+      return "Analyzing technique";
+    case "paused":
+      return "Coach paused";
+    case "idle":
+    default:
+      return "Standing by";
+  }
+}
+
+function formatDurationClock(durationMs: number): string {
+  const totalSeconds = Math.max(0, Math.ceil(durationMs / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+function normalizePracticeSurfaceLabel(value: string): string {
+  const trimmed = value.trim().replace(/\.$/, "");
+  if (!trimmed) {
+    return "";
+  }
+
+  return trimmed.charAt(0).toUpperCase() + trimmed.slice(1);
+}
+
+function getPracticeSurfaceOptions(surface: string): PracticeSurfaceOption[] {
+  const fallback = surface.trim() || "Practice surface";
+  const normalized = fallback
+    .replace(/\s+or\s+/gi, ", ")
+    .split(",")
+    .map((part) => part.trim())
+    .filter(Boolean);
+
+  const options: PracticeSurfaceOption[] = [
+    {
+      label: normalizePracticeSurfaceLabel(fallback),
+      value: fallback,
+    },
+  ];
+
+  for (const option of normalized) {
+    const nextValue = normalizePracticeSurfaceLabel(option);
+    if (!nextValue || options.some((item) => item.value === nextValue)) {
+      continue;
+    }
+
+    options.push({
+      label: nextValue,
+      value: nextValue,
+    });
+  }
+
+  return options;
+}
 
 function findNextStageId(
   procedure: ProcedureDefinition,
@@ -110,15 +307,19 @@ export default function TrainProcedurePage() {
   const [session, setSession] = useState<SessionRecord | null>(null);
   const [currentStageId, setCurrentStageId] = useState("");
   const [skillLevel, setSkillLevel] = useState<SkillLevel>("beginner");
+  const [practiceSurface, setPracticeSurface] = useState("");
   const [equityMode, setEquityMode] = useState<EquityModeSettings>(
     createDefaultEquityMode(),
   );
   const [calibration, setCalibration] = useState<Calibration>(
     createDefaultCalibration(),
   );
-  const [calibrationMode, setCalibrationMode] =
-    useState<CalibrationMode>("corners");
   const [cameraReady, setCameraReady] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState<CameraFeedStatus>(
+    INITIAL_CAMERA_FEED_STATUS,
+  );
+  const [activeWorkspacePanel, setActiveWorkspacePanel] =
+    useState<WorkspacePanel>("setup");
   const [procedureError, setProcedureError] = useState<string | null>(null);
   const [isLoadingProcedure, setIsLoadingProcedure] = useState(true);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -129,19 +330,22 @@ export default function TrainProcedurePage() {
   const [coachTurn, setCoachTurn] = useState<CoachChatResponse | null>(null);
   const [coachError, setCoachError] = useState<string | null>(null);
   const [, setIsCoachLoading] = useState(false);
-  const [showCalibrationOverlay, setShowCalibrationOverlay] = useState(false);
-  const [showFeedbackOverlay, setShowFeedbackOverlay] = useState(false);
   const [frozenFrameUrl, setFrozenFrameUrl] = useState<string | null>(null);
   const [studentQuestion, setStudentQuestion] = useState("");
   const [simulationConfirmed, setSimulationConfirmed] = useState(false);
   const [isOnline, setIsOnline] = useState(true);
   const [voiceSessionStatus, setVoiceSessionStatus] =
     useState<VoiceSessionStatus>("idle");
-  const calibrationOverlayTimeoutRef = useRef<number | null>(null);
-  const feedbackOverlayTimeoutRef = useRef<number | null>(null);
+  const [demoSessionExpired, setDemoSessionExpired] = useState(false);
+  const [demoTimeRemainingMs, setDemoTimeRemainingMs] = useState(
+    DEMO_CAMERA_SESSION_LIMIT_MS,
+  );
   const activeVoiceRecordingRef = useRef<VoiceRecordingController | null>(null);
   const coachMessagesRef = useRef<CoachChatMessage[]>([]);
   const voiceLoopGenerationRef = useRef(0);
+  const demoDeadlineRef = useRef<number | null>(null);
+  const demoSessionExpiredRef = useRef(false);
+  const liveCaptureProfileRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -157,22 +361,6 @@ export default function TrainProcedurePage() {
     return () => {
       window.removeEventListener("online", syncOnlineStatus);
       window.removeEventListener("offline", syncOnlineStatus);
-    };
-  }, []);
-
-  useEffect(() => {
-    return () => {
-      if (typeof window === "undefined") {
-        return;
-      }
-
-      if (calibrationOverlayTimeoutRef.current !== null) {
-        window.clearTimeout(calibrationOverlayTimeoutRef.current);
-      }
-
-      if (feedbackOverlayTimeoutRef.current !== null) {
-        window.clearTimeout(feedbackOverlayTimeoutRef.current);
-      }
     };
   }, []);
 
@@ -236,8 +424,11 @@ export default function TrainProcedurePage() {
         setProcedure(nextProcedure);
         setSession(activeSession);
         setSkillLevel(activeSession.skillLevel);
+        setPracticeSurface(activeSession.practiceSurface ?? nextProcedure.practice_surface);
         setEquityMode(activeSession.equityMode);
         setCalibration(activeSession.calibration);
+        setSimulationConfirmed(Boolean(activeSession.simulationConfirmed));
+        setStudentQuestion(activeSession.learnerFocus ?? "");
         setCurrentStageId(getSuggestedStageId(nextProcedure, activeSession));
       } catch (error) {
         if (!cancelled) {
@@ -265,6 +456,10 @@ export default function TrainProcedurePage() {
     () => procedure?.stages.find((stage) => stage.id === currentStageId) ?? null,
     [currentStageId, procedure],
   );
+  const practiceSurfaceOptions = useMemo(
+    () => getPracticeSurfaceOptions(procedure?.practice_surface ?? ""),
+    [procedure?.practice_surface],
+  );
 
   const currentStageAttempts = useMemo(() => {
     if (!session || !currentStageId) {
@@ -273,12 +468,6 @@ export default function TrainProcedurePage() {
 
     return session.events.filter((event) => event.stageId === currentStageId).length;
   }, [currentStageId, session]);
-
-  const totalScore = useMemo(
-    () =>
-      session?.events.reduce((sum, event) => sum + event.scoreDelta, 0) ?? 0,
-    [session],
-  );
 
   const canAdvance =
     feedbackStageId === currentStageId &&
@@ -300,62 +489,89 @@ export default function TrainProcedurePage() {
         ?.content.trim() ?? "",
     [coachMessages],
   );
-  const voiceChatEnabled =
-    cameraReady && equityMode.enabled && equityMode.audioCoaching;
+  const voiceChatEnabled = cameraReady && equityMode.audioCoaching;
+  const captureProfileLabel = useMemo(() => {
+    if (equityMode.lowBandwidthMode) {
+      return "Low-bandwidth capture";
+    }
+
+    if (equityMode.cheapPhoneMode) {
+      return "Cheap-phone profile";
+    }
+
+    return "Standard capture";
+  }, [equityMode.cheapPhoneMode, equityMode.lowBandwidthMode]);
+  const cameraToggleLabel = cameraReady
+    ? "Stop Camera"
+    : cameraStatus.state === "requesting"
+      ? "Connecting Camera..."
+      : cameraStatus.canRetry && cameraStatus.state !== "idle"
+        ? "Retry Camera"
+        : "Start Camera";
+  const liveStageConfidence = useMemo(() => {
+    if (!feedback || feedbackStageId !== currentStageId) {
+      return null;
+    }
+
+    return Math.round(feedback.confidence * 100);
+  }, [currentStageId, feedback, feedbackStageId]);
+  const voiceStatusHeadline = useMemo(
+    () => getVoiceStatusHeadline(voiceSessionStatus, cameraReady),
+    [cameraReady, voiceSessionStatus],
+  );
+  const captureProfileSignature = `${equityMode.lowBandwidthMode}:${equityMode.cheapPhoneMode}`;
+  const demoTimerLabel = useMemo(() => {
+    if (demoSessionExpired) {
+      return "Demo window ended";
+    }
+
+    if (cameraReady) {
+      return `${formatDurationClock(demoTimeRemainingMs)} remaining`;
+    }
+
+    return "2-minute demo limit";
+  }, [cameraReady, demoSessionExpired, demoTimeRemainingMs]);
+  const demoTimerTone = demoSessionExpired
+    ? "status-unsafe"
+    : cameraReady && demoTimeRemainingMs <= 30_000
+      ? "status-retry"
+      : cameraReady
+        ? "status-pass"
+        : "";
+  const liveBottomHeadline = demoSessionExpired
+    ? "Demo window ended"
+    : voiceStatusHeadline;
+  const liveBottomCopy = demoSessionExpired
+    ? "This hackathon preview auto-stopped after 2 minutes. Start the camera again for another guided run."
+    : cameraReady
+      ? `Hackathon demo timer: ${formatDurationClock(
+          demoTimeRemainingMs,
+        )} remaining.${voiceChatEnabled ? " Coach voice is live." : " Turn on audio coaching for hands-free guidance."}`
+      : "Start the camera to begin this guided practice block.";
 
   useEffect(() => {
     coachMessagesRef.current = coachMessages;
   }, [coachMessages]);
+
+  useEffect(() => {
+    demoSessionExpiredRef.current = demoSessionExpired;
+  }, [demoSessionExpired]);
 
   function persistSession(nextSession: SessionRecord) {
     saveSession(nextSession);
     setSession(nextSession);
   }
 
-  function clearCalibrationOverlayTimer() {
-    if (
-      typeof window !== "undefined" &&
-      calibrationOverlayTimeoutRef.current !== null
-    ) {
-      window.clearTimeout(calibrationOverlayTimeoutRef.current);
-      calibrationOverlayTimeoutRef.current = null;
-    }
-  }
-
-  function clearFeedbackOverlayTimer() {
-    if (
-      typeof window !== "undefined" &&
-      feedbackOverlayTimeoutRef.current !== null
-    ) {
-      window.clearTimeout(feedbackOverlayTimeoutRef.current);
-      feedbackOverlayTimeoutRef.current = null;
-    }
-  }
-
-  function showCalibrationOverlayForTenSeconds(forceVisible = false) {
-    if (typeof window === "undefined" || (!cameraReady && !forceVisible)) {
+  function persistSessionPatch(nextPatch: Partial<SessionRecord>) {
+    if (!session) {
       return;
     }
 
-    clearCalibrationOverlayTimer();
-    setShowCalibrationOverlay(true);
-    calibrationOverlayTimeoutRef.current = window.setTimeout(() => {
-      setShowCalibrationOverlay(false);
-      calibrationOverlayTimeoutRef.current = null;
-    }, CAMERA_OVERLAY_TIMEOUT_MS);
-  }
-
-  function showFeedbackOverlayForTenSeconds() {
-    if (typeof window === "undefined") {
-      return;
-    }
-
-    clearFeedbackOverlayTimer();
-    setShowFeedbackOverlay(true);
-    feedbackOverlayTimeoutRef.current = window.setTimeout(() => {
-      setShowFeedbackOverlay(false);
-      feedbackOverlayTimeoutRef.current = null;
-    }, CAMERA_OVERLAY_TIMEOUT_MS);
+    persistSession({
+      ...session,
+      ...nextPatch,
+      updatedAt: new Date().toISOString(),
+    });
   }
 
   function cancelActiveVoiceRecording() {
@@ -377,47 +593,120 @@ export default function TrainProcedurePage() {
 
   function handleCameraReadyChange(ready: boolean) {
     setCameraReady(ready);
+    liveCaptureProfileRef.current = ready ? captureProfileSignature : null;
+
+    if (ready) {
+      demoDeadlineRef.current = Date.now() + DEMO_CAMERA_SESSION_LIMIT_MS;
+      demoSessionExpiredRef.current = false;
+      setDemoSessionExpired(false);
+      setDemoTimeRemainingMs(DEMO_CAMERA_SESSION_LIMIT_MS);
+    } else {
+      demoDeadlineRef.current = null;
+      setDemoTimeRemainingMs(
+        demoSessionExpiredRef.current ? 0 : DEMO_CAMERA_SESSION_LIMIT_MS,
+      );
+    }
 
     if (!ready) {
       cancelActiveVoiceRecording();
       stopSpeechPlayback();
-      clearCalibrationOverlayTimer();
-      clearFeedbackOverlayTimer();
-      setShowCalibrationOverlay(false);
-      setShowFeedbackOverlay(false);
       setVoiceSessionStatus("idle");
+    }
+  }
+
+  function handleCameraStatusChange(nextStatus: CameraFeedStatus) {
+    setCameraStatus(nextStatus);
+  }
+
+  useEffect(() => {
+    if (!cameraReady) {
       return;
     }
 
-    showCalibrationOverlayForTenSeconds(true);
+    if (
+      liveCaptureProfileRef.current === null ||
+      liveCaptureProfileRef.current === captureProfileSignature
+    ) {
+      return;
+    }
+
+    liveCaptureProfileRef.current = captureProfileSignature;
+    let cancelled = false;
+
+    async function refreshCameraProfile() {
+      const camera = cameraRef.current;
+      if (!camera || !camera.hasLiveStream()) {
+        return;
+      }
+
+      camera.stopCamera(
+        "Updating the live preview to match the new capture profile.",
+      );
+
+      if (cancelled) {
+        return;
+      }
+
+      await camera.startCamera();
+    }
+
+    void refreshCameraProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cameraReady, captureProfileSignature]);
+
+  async function handleCameraToggle() {
+    const camera = cameraRef.current;
+
+    if (!camera) {
+      return;
+    }
+
+    if (camera.hasLiveStream()) {
+      camera.stopCamera();
+      return;
+    }
+
+    await camera.startCamera();
   }
 
   function handleSkillLevelChange(nextSkillLevel: SkillLevel) {
     setSkillLevel(nextSkillLevel);
 
-    if (!session) {
-      return;
-    }
-
-    persistSession({
-      ...session,
+    persistSessionPatch({
       skillLevel: nextSkillLevel,
-      updatedAt: new Date().toISOString(),
+    });
+  }
+
+  function handlePracticeSurfaceChange(nextPracticeSurface: string) {
+    setPracticeSurface(nextPracticeSurface);
+    persistSessionPatch({
+      practiceSurface: nextPracticeSurface,
+    });
+  }
+
+  function handleSimulationConfirmedChange(nextSimulationConfirmed: boolean) {
+    setSimulationConfirmed(nextSimulationConfirmed);
+    persistSessionPatch({
+      simulationConfirmed: nextSimulationConfirmed,
+    });
+  }
+
+  function handleLearnerFocusChange(nextLearnerFocus: string) {
+    setStudentQuestion(nextLearnerFocus);
+    persistSessionPatch({
+      learnerFocus: nextLearnerFocus,
     });
   }
 
   function handleEquityModeChange(nextEquityMode: EquityModeSettings) {
     setEquityMode(nextEquityMode);
 
-    if (!session) {
-      return;
-    }
-
-    persistSession({
-      ...session,
+    persistSessionPatch({
       equityMode: nextEquityMode,
       debrief: undefined,
-      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -427,7 +716,6 @@ export default function TrainProcedurePage() {
   ) {
     handleEquityModeChange({
       ...equityMode,
-      enabled: true,
       [key]: value,
     });
   }
@@ -435,7 +723,6 @@ export default function TrainProcedurePage() {
   function handleFeedbackLanguageChange(language: EquityModeSettings["feedbackLanguage"]) {
     handleEquityModeChange({
       ...equityMode,
-      enabled: true,
       feedbackLanguage: language,
     });
   }
@@ -444,20 +731,6 @@ export default function TrainProcedurePage() {
     handleEquityModeChange({
       ...equityMode,
       coachVoice: voice,
-    });
-  }
-
-  function handleCalibrationChange(nextCalibration: Calibration) {
-    setCalibration(nextCalibration);
-
-    if (!session) {
-      return;
-    }
-
-    persistSession({
-      ...session,
-      calibration: nextCalibration,
-      updatedAt: new Date().toISOString(),
     });
   }
 
@@ -474,11 +747,15 @@ export default function TrainProcedurePage() {
     const freshSession = saveSession({
       ...rawFreshSession,
       equityMode,
+      practiceSurface: procedure.practice_surface,
+      simulationConfirmed: false,
+      learnerFocus: "",
       updatedAt: new Date().toISOString(),
     });
     setSession(freshSession);
     setCalibration(freshSession.calibration);
     setCurrentStageId(procedure.stages[0]?.id ?? "");
+    setPracticeSurface(procedure.practice_surface);
     setFeedback(null);
     setFeedbackStageId(null);
     setCoachMessages([]);
@@ -488,12 +765,11 @@ export default function TrainProcedurePage() {
     cancelActiveVoiceRecording();
     stopSpeechPlayback();
     setVoiceSessionStatus(cameraReady ? "starting" : "idle");
-    clearFeedbackOverlayTimer();
-    setShowFeedbackOverlay(false);
     setFrozenFrameUrl(null);
     setStudentQuestion("");
     setSimulationConfirmed(false);
     setAnalyzeError(null);
+    setActiveWorkspacePanel("checklist");
   }
 
   function appendOfflinePracticeLog(
@@ -519,8 +795,6 @@ export default function TrainProcedurePage() {
       offlinePracticeLogs: [...sessionSnapshot.offlinePracticeLogs, offlineLog],
       updatedAt: new Date().toISOString(),
     });
-    clearFeedbackOverlayTimer();
-    setShowFeedbackOverlay(false);
     setFeedback(null);
     setFeedbackStageId(null);
     setAnalyzeError(reason);
@@ -530,6 +804,8 @@ export default function TrainProcedurePage() {
     if (!procedure || !currentStage || !session || !authUser) {
       return;
     }
+
+    setActiveWorkspacePanel("analysis");
 
     if (!simulationConfirmed) {
       setAnalyzeError(
@@ -550,7 +826,7 @@ export default function TrainProcedurePage() {
     setAnalyzeError(null);
     setFrozenFrameUrl(capturedFrame.previewUrl);
 
-    if (equityMode.enabled && equityMode.offlinePracticeLogging && !isOnline) {
+    if (equityMode.offlinePracticeLogging && !isOnline) {
       appendOfflinePracticeLog(
         session,
         capturedFrame,
@@ -566,20 +842,14 @@ export default function TrainProcedurePage() {
         procedure_id: procedure.id,
         stage_id: currentStage.id,
         skill_level: skillLevel,
+        practice_surface: practiceSurface,
         image_base64: capturedFrame.base64,
         student_question: studentQuestion.trim() || latestLearnerGoal || undefined,
         simulation_confirmation: simulationConfirmed,
         session_id: session.id,
         student_name: authUser.name,
         feedback_language: equityMode.feedbackLanguage,
-        equity_mode: toApiEquityMode({
-          ...equityMode,
-          audioCoaching: equityMode.enabled && equityMode.audioCoaching,
-          lowBandwidthMode: equityMode.enabled && equityMode.lowBandwidthMode,
-          cheapPhoneMode: equityMode.enabled && equityMode.cheapPhoneMode,
-          offlinePracticeLogging:
-            equityMode.enabled && equityMode.offlinePracticeLogging,
-        }),
+        equity_mode: toApiEquityMode(equityMode),
       });
 
       const attempt =
@@ -618,10 +888,8 @@ export default function TrainProcedurePage() {
 
       setFeedback(response);
       setFeedbackStageId(currentStage.id);
-      showFeedbackOverlayForTenSeconds();
     } catch (error) {
       if (
-        equityMode.enabled &&
         equityMode.offlinePracticeLogging &&
         typeof window !== "undefined" &&
         !window.navigator.onLine
@@ -657,6 +925,7 @@ export default function TrainProcedurePage() {
     if (nextStageId) {
       setCurrentStageId(nextStageId);
       setStudentQuestion("");
+      setActiveWorkspacePanel("checklist");
     }
   }
 
@@ -666,19 +935,6 @@ export default function TrainProcedurePage() {
     }
 
     router.push(`/review/${session.id}`);
-  }
-
-  function handleToggleCalibrationMode() {
-    setCalibrationMode((current) => (current === "corners" ? "guide" : "corners"));
-    showCalibrationOverlayForTenSeconds();
-  }
-
-  function handleShowCameraOverlay() {
-    showCalibrationOverlayForTenSeconds();
-
-    if (feedbackStageId === currentStageId && (feedback?.overlay_target_ids.length ?? 0) > 0) {
-      showFeedbackOverlayForTenSeconds();
-    }
   }
 
   const requestCoachTurn = useCallback(async ({
@@ -705,6 +961,7 @@ export default function TrainProcedurePage() {
         procedure_id: procedure.id,
         stage_id: currentStage.id,
         skill_level: skillLevel,
+        practice_surface: practiceSurface,
         feedback_language: equityMode.feedbackLanguage,
         simulation_confirmation: simulationConfirmed,
         image_base64: capturedFrame?.base64,
@@ -712,14 +969,7 @@ export default function TrainProcedurePage() {
         audio_format: audioClip?.format,
         session_id: session.id,
         student_name: authUser.name,
-        equity_mode: toApiEquityMode({
-          ...equityMode,
-          audioCoaching: equityMode.enabled && equityMode.audioCoaching,
-          lowBandwidthMode: equityMode.enabled && equityMode.lowBandwidthMode,
-          cheapPhoneMode: equityMode.enabled && equityMode.cheapPhoneMode,
-          offlinePracticeLogging:
-            equityMode.enabled && equityMode.offlinePracticeLogging,
-        }),
+        equity_mode: toApiEquityMode(equityMode),
         messages,
       });
 
@@ -740,6 +990,7 @@ export default function TrainProcedurePage() {
     cameraReady,
     currentStage,
     equityMode,
+    practiceSurface,
     procedure,
     session,
     simulationConfirmed,
@@ -781,6 +1032,43 @@ export default function TrainProcedurePage() {
   }, [cameraReady, currentStageId]);
 
   useEffect(() => {
+    if (!cameraReady) {
+      return;
+    }
+
+    const updateTimeRemaining = () => {
+      const deadline = demoDeadlineRef.current;
+      if (!deadline) {
+        return;
+      }
+
+      const remainingMs = Math.max(0, deadline - Date.now());
+      setDemoTimeRemainingMs(remainingMs);
+
+      if (remainingMs > 0) {
+        return;
+      }
+
+      demoDeadlineRef.current = null;
+      demoSessionExpiredRef.current = true;
+      setDemoSessionExpired(true);
+      setCoachError(
+        "The 2-minute hackathon demo window ended. Start the camera again if you want another Claude-guided run.",
+      );
+      cameraRef.current?.stopCamera(
+        "The 2-minute hackathon demo window ended. Start the camera again to continue the demo.",
+      );
+    };
+
+    updateTimeRemaining();
+    const intervalId = window.setInterval(updateTimeRemaining, 250);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [cameraReady]);
+
+  useEffect(() => {
     const generation = voiceLoopGenerationRef.current + 1;
     voiceLoopGenerationRef.current = generation;
     cancelActiveVoiceRecording();
@@ -816,7 +1104,11 @@ export default function TrainProcedurePage() {
 
           if (!proactiveResponse) {
             setVoiceSessionStatus("paused");
-            await waitForCoachLoop(AUTO_COACH_INTERVAL_MS);
+            await waitForCoachLoop(
+              voiceChatEnabled
+                ? VOICE_RECOVERY_RETRY_DELAY_MS
+                : AUTO_COACH_INTERVAL_MS,
+            );
             continue;
           }
 
@@ -862,7 +1154,7 @@ export default function TrainProcedurePage() {
               : "Microphone access is required for hands-free voice chat.",
           );
           setVoiceSessionStatus("paused");
-          await waitForCoachLoop(AUTO_COACH_INTERVAL_MS);
+          await waitForCoachLoop(VOICE_RECOVERY_RETRY_DELAY_MS);
           shouldRequestCoachTurn = true;
           continue;
         }
@@ -872,7 +1164,7 @@ export default function TrainProcedurePage() {
             "This browser does not support microphone recording for the voice coach.",
           );
           setVoiceSessionStatus("paused");
-          await waitForCoachLoop(AUTO_COACH_INTERVAL_MS);
+          await waitForCoachLoop(VOICE_RECOVERY_RETRY_DELAY_MS);
           shouldRequestCoachTurn = true;
           continue;
         }
@@ -899,7 +1191,7 @@ export default function TrainProcedurePage() {
             VOICE_PROACTIVE_REPROMPT_AFTER_SILENT_WINDOWS
           ) {
             silentListenWindows = 0;
-            await waitForCoachLoop(1_500);
+            await waitForCoachLoop(VOICE_PROACTIVE_REPROMPT_DELAY_MS);
             shouldRequestCoachTurn = true;
             continue;
           }
@@ -923,15 +1215,17 @@ export default function TrainProcedurePage() {
 
         if (!learnerResponse) {
           setVoiceSessionStatus("paused");
-          await waitForCoachLoop(AUTO_COACH_INTERVAL_MS);
+          await waitForCoachLoop(VOICE_RECOVERY_RETRY_DELAY_MS);
           shouldRequestCoachTurn = true;
           continue;
         }
 
-        appendCoachMessage(
-          "user",
-          learnerResponse.learner_goal_summary.trim() || "Voice reply received.",
-        );
+        if (learnerResponse.learner_goal_summary.trim()) {
+          appendCoachMessage(
+            "user",
+            learnerResponse.learner_goal_summary.trim(),
+          );
+        }
         appendCoachMessage("assistant", learnerResponse.coach_message);
         setVoiceSessionStatus("speaking");
         await speakTextAndWait(
@@ -963,7 +1257,6 @@ export default function TrainProcedurePage() {
     currentStage,
     equityMode.audioCoaching,
     equityMode.coachVoice,
-    equityMode.enabled,
     equityMode.feedbackLanguage,
     procedure,
     requestCoachTurn,
@@ -972,413 +1265,489 @@ export default function TrainProcedurePage() {
     voiceChatEnabled,
   ]);
 
-  if (isAuthLoading || isLoadingProcedure) {
-    return (
-      <main className="page-shell">
-        <div className="page-inner trainer-shell">
-          <div className="empty-state">
-            <h1 className="trainer-title">Loading trainer</h1>
-            <p className="review-subtle">
-              Loading the procedure and trainer settings from the backend.
+  const activeWorkspaceContent =
+    !procedure || !session || !currentStage ? null : activeWorkspacePanel === "checklist" ? (
+      <ProcedureStepper
+        canAdvance={canAdvance}
+        currentStageId={currentStage.id}
+        events={session.events}
+        onAdvance={handleAdvance}
+        onSelectStage={setCurrentStageId}
+        stages={procedure.stages}
+      />
+    ) : activeWorkspacePanel === "analysis" ? (
+      <FeedbackCard
+        attemptCount={currentStageAttempts}
+        audioEnabled={equityMode.audioCoaching}
+        coachVoice={equityMode.coachVoice}
+        error={analyzeError}
+        feedbackLanguage={equityMode.feedbackLanguage}
+        isAnalyzing={isAnalyzing}
+        response={feedbackStageId === currentStage.id ? feedback : null}
+        stageTitle={currentStage.title}
+      />
+    ) : activeWorkspacePanel === "coach" ? (
+      <VoiceCoachPanel
+        cameraReady={cameraReady}
+        coachTurn={coachTurn}
+        coachVoice={equityMode.coachVoice}
+        error={coachError}
+        feedbackLanguage={equityMode.feedbackLanguage}
+        messages={coachMessages}
+        onCoachVoiceChange={handleCoachVoiceChange}
+        simulationConfirmed={simulationConfirmed}
+        voiceChatEnabled={voiceChatEnabled}
+        voiceSessionStatus={voiceSessionStatus}
+      />
+    ) : (
+      <article className="panel">
+        <div className="panel-header">
+          <div>
+            <h2 className="panel-title">Live session setup</h2>
+            <p className="panel-copy">
+              Set the essentials before you capture a graded step.
             </p>
           </div>
+          <span className="pill">
+            {simulationConfirmed ? "ready" : "confirm required"}
+          </span>
         </div>
-      </main>
+
+        <div className="inline-form-row">
+          <label className="field-label">
+            Skill level
+            <select
+              onChange={(event) =>
+                handleSkillLevelChange(event.target.value as SkillLevel)
+              }
+              value={skillLevel}
+            >
+              <option value="beginner">Beginner</option>
+              <option value="intermediate">Intermediate</option>
+            </select>
+          </label>
+          <label className="field-label">
+            Feedback language
+            <select
+              onChange={(event) =>
+                handleFeedbackLanguageChange(
+                  event.target.value as EquityModeSettings["feedbackLanguage"],
+                )
+              }
+              value={equityMode.feedbackLanguage}
+            >
+              {FEEDBACK_LANGUAGE_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        <div className="inline-form-row" style={{ marginTop: 16 }}>
+          <label className="field-label">
+            Practice surface
+            <select
+              onChange={(event) => handlePracticeSurfaceChange(event.target.value)}
+              value={practiceSurface}
+            >
+              {practiceSurfaceOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field-label">
+            Learner focus
+            <textarea
+              onChange={(event) => handleLearnerFocusChange(event.target.value)}
+              placeholder="Ask the coach what to watch for in this stage."
+              value={studentQuestion}
+            />
+          </label>
+        </div>
+
+        <div className="equity-toggle-grid" style={{ marginTop: 18 }}>
+          <label className="safety-confirm-card">
+            <input
+              checked={equityMode.enabled}
+              onChange={(event) =>
+                handleEquityModeChange({
+                  ...equityMode,
+                  enabled: event.target.checked,
+                })
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Equity mode</strong>
+              <p className="panel-copy">
+                Shorter, simpler coaching for lower-resource practice contexts.
+              </p>
+            </div>
+          </label>
+
+          <label className="safety-confirm-card">
+            <input
+              checked={simulationConfirmed}
+              onChange={(event) =>
+                handleSimulationConfirmedChange(event.target.checked)
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Simulation-only confirmation</strong>
+              <p className="panel-copy">
+                Required before the trainer can grade the step.
+              </p>
+            </div>
+          </label>
+        </div>
+
+        <div className="equity-toggle-grid" style={{ marginTop: 16 }}>
+          <label className="safety-confirm-card">
+            <input
+              checked={equityMode.audioCoaching}
+              onChange={(event) =>
+                handleEquityOptionChange("audioCoaching", event.target.checked)
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Audio coaching</strong>
+              <p className="panel-copy">
+                Lets the coach speak and listen hands-free.
+              </p>
+            </div>
+          </label>
+
+          <label className="safety-confirm-card">
+            <input
+              checked={equityMode.lowBandwidthMode}
+              onChange={(event) =>
+                handleEquityOptionChange("lowBandwidthMode", event.target.checked)
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Low-bandwidth capture</strong>
+              <p className="panel-copy">
+                Sends smaller frames to keep analysis responsive.
+              </p>
+            </div>
+          </label>
+
+          <label className="safety-confirm-card">
+            <input
+              checked={equityMode.cheapPhoneMode}
+              onChange={(event) =>
+                handleEquityOptionChange("cheapPhoneMode", event.target.checked)
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Cheap-phone profile</strong>
+              <p className="panel-copy">
+                Uses a lighter camera stream for older devices.
+              </p>
+            </div>
+          </label>
+
+          <label className="safety-confirm-card">
+            <input
+              checked={equityMode.offlinePracticeLogging}
+              onChange={(event) =>
+                handleEquityOptionChange(
+                  "offlinePracticeLogging",
+                  event.target.checked,
+                )
+              }
+              type="checkbox"
+            />
+            <div>
+              <strong>Offline-first logging</strong>
+              <p className="panel-copy">
+                Saves local practice history if the network drops.
+              </p>
+            </div>
+          </label>
+        </div>
+
+      </article>
+    );
+
+  const reviewHref = session ? `/review/${session.id}` : DEFAULT_TRAINING_HREF;
+  const sharedSidebarItems = buildSharedSidebarItems({
+    active: "trainer",
+    reviewHref,
+    userRole: authUser?.role ?? null,
+  });
+  const sharedTopItems = buildSharedTopItems({
+    reviewHref,
+    userRole: authUser?.role ?? null,
+  });
+
+  if (isAuthLoading || isLoadingProcedure) {
+    return (
+      <AppFrame
+        brandSubtitle="Simulation-only guided practice"
+        pageTitle="Live Session"
+        sidebarItems={sharedSidebarItems}
+        statusPill={{ icon: "play", label: "booting session" }}
+        topItems={sharedTopItems}
+        userName={authUser?.name ?? null}
+      >
+        <section className="dashboard-card dashboard-frame-panel">
+          <span className="dashboard-card-eyebrow">Live Session Booting</span>
+          <h2>Loading the procedure, saved session, and trainer settings.</h2>
+          <p>Preparing the live session and restoring your saved setup.</p>
+        </section>
+      </AppFrame>
     );
   }
 
   if (!authUser || !procedure || !session || !currentStage || procedureError) {
     return (
-      <main className="page-shell">
-        <div className="page-inner trainer-shell">
-          <div className="empty-state">
-            <h1 className="trainer-title">Trainer unavailable</h1>
-            <p className="review-subtle">
-              {procedureError ??
-                "We could not initialize the suturing trainer right now."}
-            </p>
-            <div
-              className="review-actions"
-              style={{ justifyContent: "center", marginTop: 18 }}
-            >
-              <Link className="button-primary" href="/">
-                Back to Landing
-              </Link>
-            </div>
+      <AppFrame
+        brandSubtitle="Simulation-only guided practice"
+        footerSecondaryActions={[{ href: "/dashboard", icon: "dashboard", label: "Dashboard" }]}
+        pageTitle="Live Session"
+        sidebarItems={sharedSidebarItems}
+        statusPill={{ icon: "play", label: "session unavailable" }}
+        topItems={sharedTopItems}
+        userName={authUser?.name ?? null}
+      >
+        <section className="dashboard-card dashboard-frame-panel">
+          <span className="dashboard-card-eyebrow">Session Unavailable</span>
+          <h2>We could not initialize the trainer right now.</h2>
+          <p>
+            {procedureError ??
+              "The live session could not be prepared from the saved procedure data."}
+          </p>
+          <div className="dashboard-frame-actions">
+            <Link className="dashboard-primary-button" href="/dashboard">
+              Back to dashboard
+            </Link>
           </div>
-        </div>
-      </main>
+        </section>
+      </AppFrame>
     );
   }
 
   return (
-    <main className="page-shell trainer-page-shell">
-      <div className="page-inner trainer-shell">
-        <header className="page-header">
-          <div className="brand">
-            <span className="brand-mark">AC</span>
-            <span>{procedure.title}</span>
-          </div>
-          <div className="button-row">
-            <span className="pill">Simulation-only</span>
-            <span className="pill">{isOnline ? "Online" : "Offline"}</span>
-            <span className="pill">
-              {authUser.name} · {authUser.role}
+    <AppFrame
+      brandSubtitle="Simulation-only guided practice"
+      footerPrimaryAction={{
+        icon: "play",
+        label: "New Session",
+        onClick: handleStartFreshSession,
+        strong: true,
+      }}
+      footerSecondaryActions={[
+        { href: reviewHref, icon: "review", label: "Open Review" },
+        { icon: "logout", label: "Logout", onClick: handleLogout },
+      ]}
+      pageTitle="Live Session"
+      sidebarItems={sharedSidebarItems}
+      topActions={[
+        ...(authUser.role === "admin"
+          ? [{ href: "/admin/reviews", label: "Admin Queue" }]
+          : []),
+        { href: reviewHref, label: "Review" },
+      ]}
+      topItems={sharedTopItems}
+      userName={authUser.name}
+    >
+      <section className="dashboard-card trainer-session-hero">
+        <div className="trainer-session-hero-copy">
+          <span className="dashboard-card-eyebrow">Live Practice</span>
+          <h1 className="trainer-session-title">{currentStage.title}</h1>
+          <p className="trainer-session-text">{currentStage.objective}</p>
+          <div className="trainer-session-status-row">
+            <span className={`status-badge ${getCameraStatusTone(cameraStatus.state)}`}>
+              {cameraStatus.label}
             </span>
-            <Link className="button-ghost" href="/">
-              Home
-            </Link>
-            {authUser.role === "admin" ? (
-              <Link className="button-ghost" href="/admin/reviews">
-                Admin Queue
-              </Link>
-            ) : null}
-            <button className="button-secondary" onClick={handleStartFreshSession}>
-              Start Fresh Session
-            </button>
-            <button className="button-secondary" onClick={handleLogout}>
-              Logout
-            </button>
+            <span className="pill">{captureProfileLabel}</span>
+            <span className={`pill ${demoTimerTone}`}>{demoTimerLabel}</span>
+            <span className="pill">
+              {simulationConfirmed ? "simulation confirmed" : "simulation only"}
+            </span>
           </div>
-        </header>
-
-        <section className="trainer-intro-strip">
-          <div>
-            <span className="eyebrow">Live practice</span>
-            <h1 className="trainer-hero-title">
-              Frame the field and check the current step.
-            </h1>
-          </div>
-          <p className="body-copy">
-            Keep the practice surface centered, capture one step at a time, and use the
-            coaching panel to decide whether to retry, advance, or review the session.
+          <p className="trainer-session-note">
+            Keep the surface centered, confirm simulation-only mode, and use Check
+            My Step when the frame looks ready.
           </p>
-        </section>
-
-        <section className="summary-grid">
-          <article className="metric-card">
-            <p className="metric-label">Current Stage</p>
-            <p className="metric-value">{currentStage.title}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Attempts This Stage</p>
-            <p className="metric-value">{currentStageAttempts}</p>
-          </article>
-          <article className="metric-card">
-            <p className="metric-label">Total Score</p>
-            <p className="metric-value">{totalScore}</p>
-          </article>
-        </section>
-
-        <div className="trainer-layout">
-          <section>
-            <article className="panel">
-              <div className="panel-header">
-                <div>
-                  <span className="pill">Trainer camera</span>
-                  <h1 className="trainer-title">{currentStage.title}</h1>
-                  <p className="body-copy">{currentStage.objective}</p>
-                </div>
-                <div className="button-row">
-                  <button
-                    className="button-ghost"
-                    onClick={handleToggleCalibrationMode}
-                  >
-                    {calibrationMode === "corners"
-                      ? "Use Centered Guide"
-                      : "Use Corner Calibration"}
-                  </button>
-                  <button
-                    className="button-ghost"
-                    disabled={!cameraReady}
-                    onClick={handleShowCameraOverlay}
-                    type="button"
-                  >
-                    Show Overlay for 10s
-                  </button>
-                </div>
-              </div>
-
-              <div className="camera-stage">
-                <div className="camera-surface">
-                  <CameraFeed
-                    cheapPhoneMode={
-                      equityMode.enabled && equityMode.cheapPhoneMode
-                    }
-                    ref={cameraRef}
-                    frozenFrameUrl={isAnalyzing ? frozenFrameUrl : null}
-                    lowBandwidthMode={
-                      equityMode.enabled && equityMode.lowBandwidthMode
-                    }
-                    onMicrophoneIssue={setCoachError}
-                    onReadyChange={handleCameraReadyChange}
-                    primeMicrophoneOnStart={voiceChatEnabled}
-                  />
-                  {cameraReady && showCalibrationOverlay ? (
-                    <CalibrationOverlay
-                      mode={calibrationMode}
-                      calibration={calibration}
-                      disabled={!cameraReady}
-                      onChange={handleCalibrationChange}
-                    />
-                  ) : null}
-                  {cameraReady && showFeedbackOverlay ? (
-                    <OverlayRenderer
-                      mode={calibrationMode}
-                      calibration={calibration}
-                      targetIds={
-                        feedbackStageId === currentStage.id
-                          ? (feedback?.overlay_target_ids ?? [])
-                          : []
-                      }
-                      targets={procedure.named_overlay_targets}
-                    />
-                  ) : null}
-                </div>
-              </div>
-            </article>
-
-            <article className="panel" style={{ marginTop: 20 }}>
-              <div className="panel-header">
-                <div>
-                  <h2 className="panel-title">Practice setup</h2>
-                  <p className="panel-copy">
-                    Adjust the learner profile, accessibility settings, and simulation
-                    confirmation before you send a frame for analysis.
-                  </p>
-                </div>
-              </div>
-
-              <div className="inline-form-row">
-                <label className="field-label">
-                  Skill level
-                  <select
-                    value={skillLevel}
-                    onChange={(event) =>
-                      handleSkillLevelChange(event.target.value as SkillLevel)
-                    }
-                  >
-                    <option value="beginner">Beginner</option>
-                    <option value="intermediate">Intermediate</option>
-                  </select>
-                </label>
-                <label className="field-label">
-                  Practice surface
-                  <select value={procedure.practice_surface} disabled>
-                    <option>{procedure.practice_surface}</option>
-                  </select>
-                </label>
-              </div>
-
-              <label className="safety-confirm-card" style={{ marginTop: 18 }}>
-                <input
-                  checked={equityMode.enabled}
-                  onChange={(event) =>
-                    handleEquityModeChange({
-                      ...equityMode,
-                      enabled: event.target.checked,
-                    })
-                  }
-                  type="checkbox"
-                />
-                <div>
-                  <strong>Equity mode</strong>
-                  <p className="panel-copy">
-                    Turn on access-focused settings for multilingual, lower-bandwidth,
-                    and lower-cost-device practice.
-                  </p>
-                </div>
-              </label>
-
-              <div className="inline-form-row" style={{ marginTop: 18 }}>
-                <label className="field-label">
-                  Feedback language
-                  <select
-                    onChange={(event) =>
-                      handleFeedbackLanguageChange(
-                        event.target.value as EquityModeSettings["feedbackLanguage"],
-                      )
-                    }
-                    value={equityMode.feedbackLanguage}
-                  >
-                    {FEEDBACK_LANGUAGE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <article className="metric-card compact-metric-card">
-                  <p className="metric-label">Access Profile</p>
-                  <p className="metric-value">
-                    {equityMode.enabled
-                      ? getFeedbackLanguageLabel(equityMode.feedbackLanguage)
-                      : "Standard"}
-                  </p>
-                  <p className="panel-copy" style={{ marginTop: 10 }}>
-                    {equityMode.enabled
-                      ? "Plain-language coaching tuned for lower-resource practice contexts."
-                      : "Default camera, bandwidth, and review settings. Choose any option below to turn equity mode on."}
-                  </p>
-                </article>
-              </div>
-
-              <div className="equity-toggle-grid" style={{ marginTop: 18 }}>
-                <label className="safety-confirm-card">
-                  <input
-                    checked={equityMode.audioCoaching}
-                    onChange={(event) =>
-                      handleEquityOptionChange("audioCoaching", event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <div>
-                    <strong>Audio coaching</strong>
-                    <p className="panel-copy">
-                      Speak coach replies and live stage cues aloud so the learner can keep working hands-free.
-                    </p>
-                  </div>
-                </label>
-
-                <label className="safety-confirm-card">
-                  <input
-                    checked={equityMode.lowBandwidthMode}
-                    onChange={(event) =>
-                      handleEquityOptionChange("lowBandwidthMode", event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <div>
-                    <strong>Low-bandwidth image mode</strong>
-                    <p className="panel-copy">
-                      Shrink capture resolution and JPEG quality to reduce upload weight.
-                    </p>
-                  </div>
-                </label>
-
-                <label className="safety-confirm-card">
-                  <input
-                    checked={equityMode.cheapPhoneMode}
-                    onChange={(event) =>
-                      handleEquityOptionChange("cheapPhoneMode", event.target.checked)
-                    }
-                    type="checkbox"
-                  />
-                  <div>
-                    <strong>Cheap-phone compatibility</strong>
-                    <p className="panel-copy">
-                      Request a lighter camera profile that is friendlier to older devices.
-                    </p>
-                  </div>
-                </label>
-
-                <label className="safety-confirm-card">
-                  <input
-                    checked={equityMode.offlinePracticeLogging}
-                    onChange={(event) =>
-                      handleEquityOptionChange(
-                        "offlinePracticeLogging",
-                        event.target.checked,
-                      )
-                    }
-                    type="checkbox"
-                  />
-                  <div>
-                    <strong>Offline-first practice logging</strong>
-                    <p className="panel-copy">
-                      Save local practice attempts when the network is unavailable.
-                    </p>
-                  </div>
-                </label>
-              </div>
-
-              <VoiceCoachPanel
-                cameraReady={cameraReady}
-                coachTurn={coachTurn}
-                coachVoice={equityMode.coachVoice}
-                error={coachError}
-                feedbackLanguage={equityMode.feedbackLanguage}
-                messages={coachMessages}
-                onCoachVoiceChange={handleCoachVoiceChange}
-                simulationConfirmed={simulationConfirmed}
-                voiceChatEnabled={voiceChatEnabled}
-                voiceSessionStatus={voiceSessionStatus}
-              />
-
-              <label className="safety-confirm-card" style={{ marginTop: 18 }}>
-                <input
-                  checked={simulationConfirmed}
-                  onChange={(event) => setSimulationConfirmed(event.target.checked)}
-                  type="checkbox"
-                />
-                <div>
-                  <strong>Simulation-only confirmation</strong>
-                  <p className="panel-copy">
-                    I confirm this image shows a practice surface such as an orange,
-                    banana, foam pad, or bench model, not a real patient or clinical
-                    scene.
-                  </p>
-                </div>
-              </label>
-
-              <div className="trainer-control-row" style={{ marginTop: 18 }}>
-                <button
-                  className="button-primary"
-                  disabled={!cameraReady || isAnalyzing || !simulationConfirmed}
-                  onClick={() => void handleAnalyzeStep()}
-                >
-                  {isAnalyzing ? "Analyzing Step..." : "Check My Step"}
-                </button>
-                <button
-                  className="button-secondary"
-                  disabled={!canAdvance}
-                  onClick={handleAdvance}
-                >
-                  Advance to Next Stage
-                </button>
-                <button
-                  className="button-secondary"
-                  disabled={!canFinishReview}
-                  onClick={handleOpenReview}
-                >
-                  Open Review
-                </button>
-              </div>
-
-              <p className="fine-print" style={{ marginTop: 16 }}>
-                Camera overlays now auto-hide after 10 seconds. Use{" "}
-                <em>Show Overlay for 10s</em> whenever you want to see calibration or
-                feedback targets again. Equity settings are saved with the session and
-                carried into review.
-              </p>
-            </article>
-          </section>
-
-          <section>
-            <ProcedureStepper
-              canAdvance={canAdvance}
-              currentStageId={currentStage.id}
-              events={session.events}
-              onAdvance={handleAdvance}
-              onSelectStage={setCurrentStageId}
-              stages={procedure.stages}
-            />
-
-            <div style={{ marginTop: 20 }}>
-              <FeedbackCard
-                attemptCount={currentStageAttempts}
-                audioEnabled={equityMode.enabled && equityMode.audioCoaching}
-                coachVoice={equityMode.coachVoice}
-                error={analyzeError}
-                feedbackLanguage={equityMode.feedbackLanguage}
-                isAnalyzing={isAnalyzing}
-                response={feedbackStageId === currentStage.id ? feedback : null}
-                stageTitle={currentStage.title}
-              />
-            </div>
-          </section>
         </div>
-      </div>
-    </main>
+
+        <div className="trainer-session-hero-actions">
+          <button
+            className="button-primary trainer-session-action"
+            disabled={cameraStatus.state === "requesting"}
+            onClick={() => void handleCameraToggle()}
+            type="button"
+          >
+            <CameraIcon className="live-action-icon" />
+            {cameraToggleLabel}
+          </button>
+          <button
+            className="button-secondary trainer-session-action"
+            onClick={handleStartFreshSession}
+            type="button"
+          >
+            <PlusIcon className="live-action-icon" />
+            New Session
+          </button>
+        </div>
+      </section>
+
+      <section className="trainer-session-grid">
+        <div className="trainer-session-main">
+          <div className="live-hud-column trainer-session-hud">
+            <article className="live-hud-card">
+              <p className="live-hud-kicker">Confidence</p>
+              <div className="live-hud-value-row">
+                <strong>{liveStageConfidence ?? "--"}</strong>
+                <span>%</span>
+              </div>
+              <div className="live-hud-meter">
+                <span
+                  className="live-hud-meter-fill"
+                  style={{ width: `${liveStageConfidence ?? 0}%` }}
+                />
+              </div>
+              <p className="live-hud-footnote">Latest frame read from the model.</p>
+            </article>
+
+            <article className="live-hud-card">
+              <p className="live-hud-kicker">Attempts</p>
+              <div className="live-hud-value-row">
+                <strong>{currentStageAttempts}</strong>
+                <span>stage</span>
+              </div>
+              <div className="live-mini-bars">
+                {[24, 52, 76, 42, 64].map((height, index) => (
+                  <span
+                    className="live-mini-bar"
+                    key={`attempt-bar-${height}-${index}`}
+                    style={{ height: `${height}%` }}
+                  />
+                ))}
+              </div>
+            </article>
+          </div>
+
+          <div className="dashboard-card trainer-camera-card">
+            <div className="camera-stage trainer-camera-stage">
+              <div className="camera-surface">
+                <CameraFeed
+                  cheapPhoneMode={equityMode.cheapPhoneMode}
+                  ref={cameraRef}
+                  frozenFrameUrl={isAnalyzing ? frozenFrameUrl : null}
+                  lowBandwidthMode={equityMode.lowBandwidthMode}
+                  onMicrophoneIssue={setCoachError}
+                  onReadyChange={handleCameraReadyChange}
+                  onStatusChange={handleCameraStatusChange}
+                  primeMicrophoneOnStart={equityMode.audioCoaching}
+                />
+              </div>
+            </div>
+          </div>
+
+          <div className="live-bottom-bar trainer-session-bar">
+            <div className="live-waveform">
+              {[40, 58, 92, 68, 52, 86, 100, 74, 62, 95, 76, 48, 84, 98, 80, 60, 42].map(
+                (height, index) => (
+                  <span
+                    className="live-wave-bar"
+                    key={`wave-${height}-${index}`}
+                    style={{
+                      height: `${height}%`,
+                      animationDelay: `${(index % 6) * 0.14}s`,
+                    }}
+                  />
+                ),
+              )}
+            </div>
+
+            <div className="live-bottom-status">
+              <div className="live-mic-badge">MIC</div>
+              <div>
+                <p className="live-bottom-kicker">AI System Status</p>
+                <p className="live-bottom-headline">{liveBottomHeadline}</p>
+                <p className="live-bottom-copy">{liveBottomCopy}</p>
+              </div>
+            </div>
+
+            <div className="live-bottom-actions">
+              <button
+                className="button-primary"
+                disabled={!cameraReady || isAnalyzing || !simulationConfirmed}
+                onClick={() => void handleAnalyzeStep()}
+                type="button"
+              >
+                {isAnalyzing ? "Analyzing Step..." : "Check My Step"}
+              </button>
+              <button
+                className="button-secondary"
+                disabled={!canAdvance}
+                onClick={handleAdvance}
+                type="button"
+              >
+                Advance
+              </button>
+              <button
+                className="button-secondary"
+                disabled={!canFinishReview}
+                onClick={handleOpenReview}
+                type="button"
+              >
+                Review
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <aside className="trainer-session-panel">
+          <div className="dashboard-card trainer-workspace-switcher">
+            <button
+              className={`trainer-workspace-tab ${activeWorkspacePanel === "checklist" ? "is-active" : ""}`}
+              onClick={() => setActiveWorkspacePanel("checklist")}
+              type="button"
+            >
+              <ChecklistIcon className="live-shell-icon" />
+              <span>Checklist</span>
+            </button>
+            <button
+              className={`trainer-workspace-tab ${activeWorkspacePanel === "analysis" ? "is-active" : ""}`}
+              onClick={() => setActiveWorkspacePanel("analysis")}
+              type="button"
+            >
+              <AnalysisIcon className="live-shell-icon" />
+              <span>Analysis</span>
+            </button>
+            <button
+              className={`trainer-workspace-tab ${activeWorkspacePanel === "coach" ? "is-active" : ""}`}
+              onClick={() => setActiveWorkspacePanel("coach")}
+              type="button"
+            >
+              <CoachIcon className="live-shell-icon" />
+              <span>Coach</span>
+            </button>
+            <button
+              className={`trainer-workspace-tab ${activeWorkspacePanel === "setup" ? "is-active" : ""}`}
+              onClick={() => setActiveWorkspacePanel("setup")}
+              type="button"
+            >
+              <SetupIcon className="live-shell-icon" />
+              <span>Setup</span>
+            </button>
+          </div>
+
+          <div className="trainer-session-panel-content">{activeWorkspaceContent}</div>
+        </aside>
+      </section>
+    </AppFrame>
   );
 }

@@ -42,20 +42,29 @@ const FEMALE_VOICE_HINTS = [
   "emma",
 ];
 
+const US_ENGLISH_VOICE_HINTS = [
+  "en-us",
+  "american",
+  "america",
+  "new york",
+  "new york city",
+  "united states",
+];
+
 export const COACH_VOICE_OPTIONS: Array<{
   value: CoachVoicePreset;
   label: string;
   description: string;
 }> = [
   {
-    value: "guide_male",
+    value: "guide_female",
     label: "Guide voice",
-    description: "Firm, clear, male-leaning coach voice for live guidance.",
+    description: "Clear, steady US-English female coach voice for live step guidance.",
   },
   {
-    value: "mentor_male",
+    value: "mentor_female",
     label: "Mentor voice",
-    description: "Slightly deeper, slower male-leaning coach voice.",
+    description: "Warmer, slightly slower US-English female coach voice for question support.",
   },
   {
     value: "system_default",
@@ -67,26 +76,48 @@ export const COACH_VOICE_OPTIONS: Array<{
 const VOICE_PRESET_CONFIG: Record<
   CoachVoicePreset,
   {
-    maleBias: boolean;
+    preferBrowserFirst: boolean;
+    preferredGender: "female" | "neutral";
     pitch: number;
     rate: number;
     preferredHints: string[];
   }
 > = {
-  guide_male: {
-    maleBias: true,
-    pitch: 0.86,
+  guide_female: {
+    preferBrowserFirst: true,
+    preferredGender: "female",
+    pitch: 1.14,
     rate: 0.98,
-    preferredHints: ["alex", "david", "guy", "thomas", "oliver", "jorge"],
+    preferredHints: [
+      "allison",
+      "aria",
+      "ava",
+      "emma",
+      "jenny",
+      "samantha",
+      "victoria",
+      "zira",
+    ],
   },
-  mentor_male: {
-    maleBias: true,
-    pitch: 0.76,
+  mentor_female: {
+    preferBrowserFirst: true,
+    preferredGender: "female",
+    pitch: 1.02,
     rate: 0.92,
-    preferredHints: ["daniel", "matthew", "james", "arthur", "lee", "fred"],
+    preferredHints: [
+      "catherine",
+      "hazel",
+      "karen",
+      "luna",
+      "moira",
+      "monica",
+      "sara",
+      "susan",
+    ],
   },
   system_default: {
-    maleBias: false,
+    preferBrowserFirst: false,
+    preferredGender: "neutral",
     pitch: 1,
     rate: 1,
     preferredHints: [],
@@ -329,23 +360,29 @@ function getPreferredSpeechVoice(
     )
       ? 14
       : 0;
-    const maleScore =
-      presetConfig.maleBias &&
-      MALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
+    const usEnglishScore =
+      requestedLanguage === "en-us" &&
+      US_ENGLISH_VOICE_HINTS.some((hint) => voiceName.includes(hint))
+        ? 16
+        : 0;
+    const femaleScore =
+      presetConfig.preferredGender === "female" &&
+      FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
         ? 20
         : 0;
-    const femalePenalty = FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
-      ? presetConfig.maleBias
-        ? -20
-        : -4
-      : 0;
+    const malePenalty =
+      presetConfig.preferredGender === "female" &&
+      MALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
+        ? -18
+        : 0;
     const localServiceScore = voice.localService ? 4 : 0;
     const defaultScore = voice.default ? 2 : 0;
     const score =
       languageScore +
       presetHintScore +
-      maleScore +
-      femalePenalty +
+      usEnglishScore +
+      femaleScore +
+      malePenalty +
       localServiceScore +
       defaultScore;
 
@@ -373,10 +410,32 @@ function configureUtterance(
   utterance.pitch = presetConfig.pitch;
 }
 
+function shouldPreferBrowserSpeech(
+  language: FeedbackLanguage,
+  preset: CoachVoicePreset,
+): boolean {
+  if (!canUseSpeechSynthesis()) {
+    return false;
+  }
+
+  const presetConfig = VOICE_PRESET_CONFIG[preset];
+  if (!presetConfig.preferBrowserFirst) {
+    return false;
+  }
+
+  const preferredVoice = getPreferredSpeechVoice(language, preset);
+  if (!preferredVoice) {
+    return false;
+  }
+
+  const voiceName = `${preferredVoice.name} ${preferredVoice.voiceURI}`.toLowerCase();
+  return FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint));
+}
+
 export function speakText(
   text: string,
   language: FeedbackLanguage,
-  preset: CoachVoicePreset = "guide_male",
+  preset: CoachVoicePreset = "guide_female",
 ): Promise<boolean> {
   if (!text.trim()) {
     return Promise.resolve(false);
@@ -388,7 +447,7 @@ export function speakText(
 export function speakTextAndWait(
   text: string,
   language: FeedbackLanguage,
-  preset: CoachVoicePreset = "guide_male",
+  preset: CoachVoicePreset = "guide_female",
 ): Promise<boolean> {
   if (!text.trim()) {
     return Promise.resolve(false);
@@ -557,6 +616,18 @@ async function speakTextWithFallback(
   waitForCompletion: boolean,
 ): Promise<boolean> {
   stopSpeechPlayback();
+
+  if (shouldPreferBrowserSpeech(language, preset)) {
+    const didPlayBrowserSpeech = await playBrowserSpeech(
+      text,
+      language,
+      preset,
+      waitForCompletion,
+    );
+    if (didPlayBrowserSpeech) {
+      return true;
+    }
+  }
 
   const didPlayBackendAudio = await playBackendSpeech(
     text,

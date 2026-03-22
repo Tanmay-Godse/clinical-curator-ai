@@ -73,9 +73,8 @@ export function VoiceCoachPanel({
         <div>
           <h2 className="panel-title">Voice coach</h2>
           <p className="panel-copy">
-            The coach now behaves like a live guide: once the camera is on, it speaks
-            automatically and keeps guiding the current stage without needing typed
-            replies.
+            Keep voice guidance simple: start the camera, let the coach speak, and
+            reply by voice when needed.
           </p>
         </div>
         <span className="pill">
@@ -91,20 +90,18 @@ export function VoiceCoachPanel({
           </p>
           <p className="panel-copy" style={{ marginTop: 10 }}>
             {simulationConfirmed
-              ? "Simulation confirmed. The coach can use frame context in the next turn."
-              : "Confirm the simulation setup to unlock image-guided coaching."}
+              ? "Frame-aware coaching is ready."
+              : "Confirm simulation-only mode to enable grading."}
           </p>
         </article>
 
         <article className="metric-card compact-metric-card">
           <p className="metric-label">Hands-free mode</p>
-          <p className="metric-value">
-            {voiceSessionStatus}
-          </p>
+          <p className="metric-value">{voiceSessionStatus}</p>
           <p className="panel-copy" style={{ marginTop: 10 }}>
             {voiceChatEnabled
-              ? "The trainer is running a live voice loop: coach speaks, listens on the mic, and sends learner audio to the backend model."
-              : "Turn on Audio coaching inside Equity mode to let the coach speak back and listen without extra taps."}
+              ? "Coach replies play automatically and the mic reopens after each turn."
+              : "Turn on Audio coaching in Setup to enable the loop."}
           </p>
         </article>
       </div>
@@ -127,57 +124,12 @@ export function VoiceCoachPanel({
         </label>
 
         <article className="metric-card compact-metric-card">
-          <p className="metric-label">Hands-free playback</p>
+          <p className="metric-label">Audio path</p>
           <p className="metric-value">
-            {COACH_VOICE_OPTIONS.find((option) => option.value === coachVoice)?.label ??
-              "Guide voice"}
+            {supportsSpeechSynthesis ? "browser voice" : "backend voice"}
           </p>
           <p className="panel-copy" style={{ marginTop: 10 }}>
-            {COACH_VOICE_OPTIONS.find((option) => option.value === coachVoice)
-              ?.description ??
-              "Spoken guidance plays automatically after each coach reply."}
-          </p>
-        </article>
-      </div>
-
-      <div className="feedback-block" style={{ marginTop: 16 }}>
-        <div className="feedback-header">
-          <strong>Live behavior</strong>
-          <span className="pill">
-            {simulationConfirmed ? "watching frames" : "awaiting confirmation"}
-          </span>
-        </div>
-        <p className="feedback-copy" style={{ marginTop: 12 }}>
-          {voiceChatEnabled
-            ? simulationConfirmed
-              ? "Once the coach finishes speaking, it reopens the microphone, listens for the learner, and keeps using fresh frames to guide the stage."
-              : "The coach can already talk and listen, and it will start image-guided feedback as soon as the simulation-only setup is confirmed."
-            : "The coach can still plan the stage from the backend, but full hands-free voice chat starts after Audio coaching is turned on."}
-        </p>
-      </div>
-
-      <div className="coach-status-grid" style={{ marginTop: 16 }}>
-        <article className="metric-card compact-metric-card">
-          <p className="metric-label">Voice input</p>
-          <p className="metric-value">
-            {supportsVoiceRecording ? "microphone ready" : "unsupported"}
-          </p>
-          <p className="panel-copy" style={{ marginTop: 10 }}>
-            {supportsVoiceRecording
-              ? "The loop listens for the learner after each spoken coach turn."
-              : "This browser cannot capture learner voice, so the session falls back to one-way spoken guidance."}
-          </p>
-        </article>
-
-        <article className="metric-card compact-metric-card">
-          <p className="metric-label">Voice output</p>
-          <p className="metric-value">
-            {supportsSpeechSynthesis ? "browser + backend" : "backend only"}
-          </p>
-          <p className="panel-copy" style={{ marginTop: 10 }}>
-            {supportsSpeechSynthesis
-              ? "Coach replies use backend audio first, with browser speech as a fallback."
-              : "Coach replies use backend-generated audio because browser speech is unavailable."}
+            {supportsVoiceRecording ? "Mic ready for replies." : "Mic input is unavailable in this browser."}
           </p>
         </article>
       </div>
@@ -193,14 +145,7 @@ export function VoiceCoachPanel({
           </p>
           {coachTurn.stage_focus.length > 0 ? (
             <ul className="feedback-list" style={{ marginTop: 12 }}>
-              {coachTurn.stage_focus.map((item) => (
-                <li key={item}>{item}</li>
-              ))}
-            </ul>
-          ) : null}
-          {coachTurn.camera_observations.length > 0 ? (
-            <ul className="feedback-list" style={{ marginTop: 12 }}>
-              {coachTurn.camera_observations.map((item) => (
+              {coachTurn.stage_focus.slice(0, 3).map((item) => (
                 <li key={item}>{item}</li>
               ))}
             </ul>
@@ -213,14 +158,12 @@ export function VoiceCoachPanel({
           <div className="feedback-block">
             <strong>Coach standby</strong>
             <p className="feedback-copy" style={{ marginTop: 12 }}>
-              Start the camera to begin the session. The coach will greet the learner,
-              ask what they want to improve, and keep the conversation moving from
-              voice alone.
+              Start the camera and the coach will guide the stage from there.
             </p>
           </div>
         ) : (
           <ul className="timeline-list">
-            {messages.map((message, index) => (
+            {messages.slice(-4).map((message, index) => (
               <li className="timeline-item" key={`${message.role}-${index}-${message.content}`}>
                 <header>
                   <strong>{message.role === "assistant" ? "AI coach" : "Learner"}</strong>

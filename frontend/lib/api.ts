@@ -8,10 +8,13 @@ import type {
   DebriefRequest,
   DebriefResponse,
   HealthStatus,
+  KnowledgePackRequest,
+  KnowledgePackResponse,
   UserRole,
   ProcedureDefinition,
   ResolveReviewCaseRequest,
   ReviewCase,
+  UpdateAuthAccountInput,
 } from "@/lib/types";
 
 const API_BASE_URL = (
@@ -81,6 +84,21 @@ export async function getHealthStatus(): Promise<HealthStatus> {
   return readJson<HealthStatus>(response);
 }
 
+export async function generateKnowledgePack(
+  payload: KnowledgePackRequest,
+): Promise<KnowledgePackResponse> {
+  const response = await fetch(`${API_BASE_URL}/knowledge-pack`, {
+    body: JSON.stringify(payload),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "POST",
+  });
+
+  return readJson<KnowledgePackResponse>(response);
+}
+
 export async function previewPersistedAuthAccount(
   identifier: string,
 ): Promise<PersistedAuthAccount | null> {
@@ -125,6 +143,28 @@ export async function signInPersistedAuthAccount(payload: {
       "Content-Type": "application/json",
     },
     method: "POST",
+  });
+
+  const data = await readJson<AuthAccountApiResponse>(response);
+  return toPersistedAuthAccount(data);
+}
+
+export async function updatePersistedAuthAccount(
+  accountId: string,
+  payload: UpdateAuthAccountInput,
+): Promise<PersistedAuthAccount> {
+  const response = await fetch(`${API_BASE_URL}/auth/accounts/${accountId}`, {
+    body: JSON.stringify({
+      name: payload.name,
+      username: payload.username,
+      current_password: payload.currentPassword,
+      new_password: payload.newPassword?.trim() ? payload.newPassword : undefined,
+    }),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    method: "PUT",
   });
 
   const data = await readJson<AuthAccountApiResponse>(response);
