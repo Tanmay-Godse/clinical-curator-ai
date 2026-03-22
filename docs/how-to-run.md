@@ -1,6 +1,6 @@
 # How To Run Locally
 
-This repo is now documented around the current hackathon demo stack:
+This repo is documented around the current hackathon demo stack:
 
 - `Claude Sonnet 4.6` for analysis, coaching, and debriefs
 - `gpt-4o-mini-transcribe` for learner voice transcription
@@ -15,6 +15,7 @@ Other core routes:
 - `/knowledge`
 - `/library`
 - `/profile`
+- `/admin/reviews`
 
 ## Prerequisites
 
@@ -101,23 +102,24 @@ http://localhost:3000
 
 The root route redirects to `/dashboard`.
 
-## 4. Use the Live Trainer
+Then:
 
-1. Sign in or create a local demo account.
-2. Open `Live Session`.
-3. Start the camera.
-4. Confirm `Simulation-only confirmation` before running frame analysis.
-5. Turn on `Audio coaching` if you want the hands-free voice loop.
+1. Create or sign in to a local account from `/login`.
+2. Open `/train/simple-interrupted-suture`.
+3. Confirm the simulation-only checkbox before analysis.
+4. Turn on `Audio coaching` if you want the hands-free voice loop.
+5. Use `/admin/reviews` with an admin account if you want to inspect flagged attempts.
+
+## 4. Live Trainer Notes
 
 Current demo behavior:
 
 - camera runs are limited to `2 minutes`
-- frame capture/coach refresh runs every `5 seconds`
+- frame capture and proactive coach refresh run every `5 seconds`
 - learner voice is transcribed before being sent to Claude
+- low-confidence or ambiguous attempts stay `not graded` and prompt a retake
 
-## Setup Toggle Behavior
-
-The setup panel now behaves like this:
+Setup toggles:
 
 - `Equity mode`: asks the AI to keep coaching and debrief language plainer and more access-focused
 - `Simulation-only confirmation`: required before image-based analysis runs
@@ -136,6 +138,9 @@ curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 curl -X POST http://localhost:8001/api/v1/knowledge-pack \
   -H "Content-Type: application/json" \
   -d '{"procedure_id":"simple-interrupted-suture","skill_level":"beginner","feedback_language":"en"}'
+curl -X POST http://localhost:8001/api/v1/debrief \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","events":[]}'
 ```
 
 Frontend and backend quality checks:
@@ -165,7 +170,14 @@ Browser smoke flow verified on `2026-03-22`:
 ## Troubleshooting
 
 - Camera or microphone access requires `localhost` or `https`.
-- If voice coaching is enabled after the browser has already blocked mic access,
-  allow microphone permission and retry the camera.
-- If the network is offline, analyzed attempts will not be sent to Claude, but
-  local offline practice logs can still be saved when `Offline-first logging` is on.
+- If voice coaching is enabled after the browser has already blocked mic access, allow microphone permission and retry the camera.
+- If learner audio cannot be transcribed, confirm the OpenAI transcription key is configured.
+- If the network is offline, analyzed attempts will not be sent to Claude, but local offline practice logs can still be saved when `Offline-first logging` is on.
+
+## Need More Detail?
+
+- `docs/local-setup.md` for the full setup and troubleshooting flow
+- `docs/team-setup.md` for collaborator setup and open-repo secret handling
+- `docs/api-reference.md` for backend routes and request/response examples
+- `backend/README.md` for backend-only setup notes
+- `frontend/README.md` for frontend-only setup notes

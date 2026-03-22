@@ -398,6 +398,7 @@ def test_coach_service_transcribes_audio_before_sending_to_model(monkeypatch) ->
     )
 
     assert response.learner_goal_summary == "Improve my entry angle"
+    assert response.learner_transcript == "Improve my entry angle"
     assert len(captured["request"]["user_content"]) == 1
     assert captured["request"]["user_content"][0]["type"] == "text"
     assert "Improve my entry angle" in captured["request"]["user_content"][0]["text"]
@@ -427,6 +428,7 @@ def test_coach_service_blocks_when_transcription_fails(monkeypatch) -> None:
     assert "empty transcript" in response.coach_message.lower()
     assert "type" in response.plan_summary.lower()
     assert response.learner_goal_summary == ""
+    assert response.learner_transcript == ""
 
 
 def test_coach_service_fallback_waits_for_learner_after_assistant_turn() -> None:
@@ -475,6 +477,80 @@ def test_safety_service_blocks_without_simulation_confirmation() -> None:
 
     assert result.status == "blocked"
     assert "confirmation" in result.reason.lower()
+
+
+def test_safety_service_allows_visible_learner_in_nonclinical_scene(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        safety_service,
+        "send_json_message",
+        lambda **_: {
+            "status": "blocked",
+            "confidence": 0.94,
+            "reason": (
+                "The image shows a person with a real human face and upper body in a casual indoor environment. "
+                "No orange, banana, foam pad, or tools are visible yet."
+            ),
+            "refusal_message": (
+                "Analysis was blocked because the image may depict a real patient or live clinical scene."
+            ),
+        },
+    )
+
+    payload = AnalyzeFrameRequest(
+        procedure_id="simple-interrupted-suture",
+        stage_id="needle_entry",
+        skill_level="beginner",
+        image_base64="ZmFrZQ==",
+        simulation_confirmation=True,
+    )
+
+    procedure = analysis_service.load_procedure("simple-interrupted-suture")
+    stage = analysis_service.load_stage(procedure, "needle_entry")
+    result = safety_service.evaluate_safety_gate(
+        payload=payload,
+        procedure=procedure,
+        stage=stage,
+    )
+
+    assert result.status == "cleared"
+    assert "learner or bystander" in result.reason.lower()
+    assert result.refusal_message is None
+
+
+def test_safety_service_does_not_block_benign_or_word_in_student_question(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        safety_service,
+        "send_json_message",
+        lambda **_: {
+            "status": "cleared",
+            "confidence": 0.91,
+            "reason": "The image appears to be a simulation-only practice scene.",
+            "refusal_message": None,
+        },
+    )
+
+    payload = AnalyzeFrameRequest(
+        procedure_id="simple-interrupted-suture",
+        stage_id="needle_entry",
+        skill_level="beginner",
+        image_base64="ZmFrZQ==",
+        student_question="Should I enter closer to the center or the edge?",
+        simulation_confirmation=True,
+    )
+
+    procedure = analysis_service.load_procedure("simple-interrupted-suture")
+    stage = analysis_service.load_stage(procedure, "needle_entry")
+    result = safety_service.evaluate_safety_gate(
+        payload=payload,
+        procedure=procedure,
+        stage=stage,
+    )
+
+    assert result.status == "cleared"
 
 
 def test_review_queue_service_resolves_case(tmp_path, monkeypatch) -> None:

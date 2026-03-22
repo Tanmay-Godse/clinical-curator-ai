@@ -25,8 +25,11 @@ from app.services.procedure_loader import load_procedure, load_stage
 def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
     procedure = load_procedure(payload.procedure_id)
     stage = load_stage(procedure, payload.stage_id)
+    learner_transcript = ""
     try:
-        normalized_payload = _normalize_payload_with_transcript(payload)
+        normalized_payload, learner_transcript = _normalize_payload_with_transcript(
+            payload
+        )
     except (AIConfigurationError, AIRequestError, AIResponseError) as exc:
         if payload.audio_base64:
             return _build_transcription_blocked_response(
@@ -60,6 +63,7 @@ def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
                 suggested_next_step="Confirm the simulation setup, then send another message so we can plan the session.",
                 camera_observations=[],
                 stage_focus=[stage.title],
+                learner_transcript=learner_transcript,
             )
 
     try:
@@ -97,12 +101,15 @@ def generate_coach_turn(payload: CoachChatRequest) -> CoachChatResponse:
             draft.learner_goal_summary.strip()
             or fallback_response.learner_goal_summary
         ),
+        learner_transcript=learner_transcript,
     )
 
 
-def _normalize_payload_with_transcript(payload: CoachChatRequest) -> CoachChatRequest:
+def _normalize_payload_with_transcript(
+    payload: CoachChatRequest,
+) -> tuple[CoachChatRequest, str]:
     if not payload.audio_base64:
-        return payload
+        return payload, ""
 
     transcript = transcription_service.transcribe_audio_clip(
         audio_base64=payload.audio_base64,
@@ -119,7 +126,7 @@ def _normalize_payload_with_transcript(payload: CoachChatRequest) -> CoachChatRe
         CoachChatMessage(role="user", content=transcript),
     ][-12:]
 
-    return CoachChatRequest.model_validate(
+    normalized_payload = CoachChatRequest.model_validate(
         {
             **payload.model_dump(mode="json"),
             "audio_base64": None,
@@ -127,6 +134,7 @@ def _normalize_payload_with_transcript(payload: CoachChatRequest) -> CoachChatRe
             "messages": [message.model_dump(mode="json") for message in next_messages],
         }
     )
+    return normalized_payload, transcript
 
 
 def _build_transcription_blocked_response(
@@ -151,6 +159,7 @@ def _build_transcription_blocked_response(
         camera_observations=[],
         stage_focus=[stage.title],
         learner_goal_summary="",
+        learner_transcript="",
     )
 
 
@@ -397,6 +406,7 @@ def _build_fallback_response(
             camera_observations=[],
             stage_focus=[stage.title, stage.objective],
             learner_goal_summary=last_user_message,
+            learner_transcript=last_user_message,
         )
 
     return CoachChatResponse(
@@ -417,6 +427,7 @@ def _build_fallback_response(
         ),
         stage_focus=[stage.title, stage.objective],
         learner_goal_summary=last_user_message,
+        learner_transcript=last_user_message,
     )
 
 

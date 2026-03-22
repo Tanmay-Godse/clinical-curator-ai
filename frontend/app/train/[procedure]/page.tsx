@@ -1283,6 +1283,11 @@ export default function TrainProcedurePage() {
           learnerClip.durationMs < VOICE_RECORDING_MIN_SPEECH_MS
         ) {
           silentListenWindows += 1;
+          if (silentListenWindows >= 2) {
+            setCoachError(
+              "I am listening, but I am not picking up a clear voice reply yet. Speak after the coach finishes, move a little closer to the mic, and try one short sentence.",
+            );
+          }
           setVoiceSessionStatus("listening");
 
           if (
@@ -1319,10 +1324,14 @@ export default function TrainProcedurePage() {
           continue;
         }
 
-        if (learnerResponse.learner_goal_summary.trim()) {
+        const learnerTranscript = learnerResponse.learner_transcript.trim();
+        const learnerMessage =
+          learnerTranscript || learnerResponse.learner_goal_summary.trim();
+
+        if (learnerMessage) {
           appendCoachMessage(
             "user",
-            learnerResponse.learner_goal_summary.trim(),
+            learnerMessage,
           );
         }
         const coachSignature = buildCoachMessageSignature(

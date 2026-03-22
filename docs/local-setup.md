@@ -1,8 +1,7 @@
 # Local Setup Guide
 
 This guide explains the current local demo setup and the trainer behavior that
-the UI exposes today. Older model-server notes have been removed so this stays
-aligned with the actual project.
+the UI exposes today.
 
 ## Current Stack
 
@@ -77,6 +76,18 @@ Frontend env:
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 ```
 
+## Provider Compatibility
+
+The current docs are written around Anthropic plus OpenAI transcription, but the
+backend config still supports:
+
+- `AI_PROVIDER=auto` for provider auto-detection
+- Anthropic-style `/messages` endpoints
+- OpenAI-compatible AI endpoints
+- older `OPENAI_*` and `ANTHROPIC_*` env aliases
+
+If you use a nonstandard proxy, set `AI_PROVIDER` explicitly.
+
 ## Main Routes
 
 - `/dashboard`: default app landing page
@@ -134,7 +145,7 @@ What it does:
 Current implementation:
 
 - uploaded frames target a smaller long edge and lower JPEG quality
-- changing this while the camera is live now refreshes the stream with the smaller capture profile
+- changing this while the camera is live refreshes the stream with the smaller capture profile
 
 ### Cheap-phone profile
 
@@ -146,7 +157,7 @@ What it does:
 Current implementation:
 
 - the camera stream is requested at a smaller target resolution
-- changing this while the camera is live now refreshes the stream with the lighter profile
+- changing this while the camera is live refreshes the stream with the lighter profile
 
 ### Offline-first logging
 
@@ -163,7 +174,23 @@ Current implementation:
 
 - debrief requests still need network access
 - if `Offline-first logging` is enabled and the device is offline, the review page keeps the local history visible and waits to regenerate the AI debrief until the device reconnects
+- low-confidence attempts stay ungraded instead of receiving a forced score
 - debrief audio playback appears when `Audio coaching` was enabled for that session
+- the debrief response includes a personal `error_fingerprint` and one `adaptive_drill`
+
+## Human Review Queue
+
+Admin reviewers can open `http://localhost:3000/admin/reviews` after signing in
+with an admin account from `/login`.
+
+The queue primarily collects:
+
+- safety-gate blocked sessions
+- low-confidence attempts
+- unclear or unsafe outcomes
+
+Each case can be resolved with reviewer notes, a corrected status, and corrected
+coaching text.
 
 ## Verification
 
@@ -175,6 +202,9 @@ curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 curl -X POST http://localhost:8001/api/v1/knowledge-pack \
   -H "Content-Type: application/json" \
   -d '{"procedure_id":"simple-interrupted-suture","skill_level":"beginner","feedback_language":"en"}'
+curl -X POST http://localhost:8001/api/v1/debrief \
+  -H "Content-Type: application/json" \
+  -d '{"session_id":"demo-session","procedure_id":"simple-interrupted-suture","skill_level":"beginner","feedback_language":"en","events":[]}'
 ```
 
 Frontend checks:

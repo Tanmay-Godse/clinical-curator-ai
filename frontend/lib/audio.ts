@@ -212,6 +212,8 @@ const DEFAULT_VOICE_RECORDING_MAX_DURATION_MS = 14_000;
 const DEFAULT_VOICE_RECORDING_MIN_SPEECH_MS = 260;
 const DEFAULT_VOICE_RECORDING_SILENCE_DURATION_MS = 1_700;
 const DEFAULT_VOICE_RECORDING_SILENCE_THRESHOLD = 0.012;
+const DEFAULT_VOICE_RECORDING_FALLBACK_RMS = 0.006;
+const DEFAULT_VOICE_RECORDING_MIN_CLIP_DURATION_MS = 650;
 
 let activeAudioElement: HTMLAudioElement | null = null;
 let activeAudioUrl: string | null = null;
@@ -570,6 +572,10 @@ export async function startVoiceRecording(
     options.silenceDurationMs ?? DEFAULT_VOICE_RECORDING_SILENCE_DURATION_MS;
   const silenceThreshold =
     options.silenceThreshold ?? DEFAULT_VOICE_RECORDING_SILENCE_THRESHOLD;
+  const fallbackSilenceThreshold = Math.min(
+    silenceThreshold,
+    DEFAULT_VOICE_RECORDING_FALLBACK_RMS,
+  );
 
   let stream: MediaStream;
   try {
@@ -595,6 +601,7 @@ export async function startVoiceRecording(
   let speechStartedAt: number | null = null;
   let lastSpeechAt: number | null = null;
   let accumulatedSpeechDurationMs = 0;
+  let peakRms = 0;
   let maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
   const result = new Promise<RecordedVoiceClip | null>((resolve) => {
     resolveResult = resolve;
@@ -612,6 +619,7 @@ export async function startVoiceRecording(
       typeof performance !== "undefined" ? performance.now() : Date.now();
     const rms = calculateRootMeanSquare(copy);
     const chunkDurationMs = (copy.length / inputBuffer.sampleRate) * 1000;
+    peakRms = Math.max(peakRms, rms);
 
     if (rms >= silenceThreshold) {
       if (speechStartedAt === null) {
@@ -668,17 +676,22 @@ export async function startVoiceRecording(
       }
 
       const speechDurationMs = accumulatedSpeechDurationMs;
+      const merged = mergeBuffers(buffers, totalSamples);
+      const recordingDurationMs = Math.round((merged.length / sampleRate) * 1000);
+      const hasDetectedSpeech =
+        speechDurationMs >= minSpeechDurationMs;
+      const hasFallbackSpeech =
+        recordingDurationMs >= DEFAULT_VOICE_RECORDING_MIN_CLIP_DURATION_MS &&
+        peakRms >= fallbackSilenceThreshold;
 
       if (
         discard ||
         totalSamples === 0 ||
-        speechStartedAt === null ||
-        speechDurationMs < minSpeechDurationMs
+        (!hasDetectedSpeech && !hasFallbackSpeech)
       ) {
         return null;
       }
 
-      const merged = mergeBuffers(buffers, totalSamples);
       const wavBuffer = encodeWav(merged, sampleRate);
 
       return {

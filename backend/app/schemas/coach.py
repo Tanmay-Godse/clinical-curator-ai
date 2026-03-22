@@ -40,6 +40,7 @@ class CoachChatResponse(BaseModel):
     camera_observations: list[str] = Field(default_factory=list, max_length=3)
     stage_focus: list[str] = Field(default_factory=list, max_length=3)
     learner_goal_summary: str = ""
+    learner_transcript: str = ""
 
 
 class CoachChatDraft(BaseModel):

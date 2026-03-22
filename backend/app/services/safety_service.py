@@ -10,7 +10,15 @@ from app.schemas.procedure import ProcedureDefinition, ProcedureStage
 from app.services.ai_client import AIRequestError, AIResponseError, send_json_message
 
 CLINICAL_SCENE_PATTERN = re.compile(
-    r"\b(patient|operating room|or\b|hospital|bedside|clinic|ward|incision|bleeding|surgery)\b",
+    r"\b(patient|operating room|hospital|bedside|clinic|ward|incision|bleeding|surgery|wound|tissue)\b",
+    re.IGNORECASE,
+)
+CLINICAL_EVIDENCE_PATTERN = re.compile(
+    r"\b(hospital|bedside|clinic|ward|operating room|incision|bleeding|surgery|wound|tissue|sterile drape|medical monitor|clinical environment)\b",
+    re.IGNORECASE,
+)
+NONCLINICAL_PERSON_PATTERN = re.compile(
+    r"\b(person|human|face|upper body|body|hand|student|learner|bystander|casual indoor|home|living room|couch)\b",
     re.IGNORECASE,
 )
 
@@ -71,6 +79,10 @@ def evaluate_safety_gate(
         )
 
     refusal_message = (draft.refusal_message or "").strip() or None
+    normalized_result = _override_nonclinical_person_false_positive(draft)
+    if normalized_result is not None:
+        return normalized_result
+
     if draft.status == "blocked" and not refusal_message:
         refusal_message = (
             "Analysis was blocked because the image may depict a real patient or live clinical scene. "
@@ -94,8 +106,12 @@ def _build_safety_system_prompt() -> str:
     return (
         "You are a safety gate for a simulation-only suturing coach. "
         "Your job is to block or escalate images that may show a real patient, living tissue, or a live clinical environment. "
+        "A learner, instructor, face, hands, or upper body appearing in frame is allowed by itself and must not be treated as a block reason. "
+        "A casual home, classroom, or practice environment is also allowed by itself. "
+        "Only block when there is evidence of a real patient, exposed living tissue, a live wound, or a real clinical environment. "
         "Only clear images that confidently appear to be simulation practice on an orange, banana, foam pad, bench model, or other inert training surface. "
-        "If you are unsure, use 'needs_human_review'."
+        "If the scene is non-clinical but the practice surface or tools are missing, occluded, or not yet ready, still return 'cleared' and let the main analyzer mark the frame unclear or retry. "
+        "If you are unsure whether the scene is clinical, use 'needs_human_review'."
     )
 
 
@@ -123,6 +139,11 @@ def _build_safety_user_content(
             "bedside clinical environment",
             "live wound or incision",
         ],
+        "allowed_people_examples": [
+            "student face visible in frame",
+            "learner hands holding the practice surface",
+            "casual indoor or home practice setup with a learner present",
+        ],
     }
 
     return [
@@ -142,3 +163,30 @@ def _build_safety_user_content(
             },
         },
     ]
+
+
+def _override_nonclinical_person_false_positive(
+    draft: SafetyGateDraft,
+) -> SafetyGateResult | None:
+    reason = draft.reason.strip()
+    if not reason:
+        return None
+
+    if draft.status == "cleared":
+        return None
+
+    if not NONCLINICAL_PERSON_PATTERN.search(reason):
+        return None
+
+    if CLINICAL_EVIDENCE_PATTERN.search(reason):
+        return None
+
+    return SafetyGateResult(
+        status="cleared",
+        confidence=max(0.55, min(draft.confidence, 0.8)),
+        reason=(
+            "A learner or bystander being visible in a non-clinical scene is allowed for simulation practice. "
+            "No real-patient or live-clinical indicators were detected, so the frame was passed to the main analyzer."
+        ),
+        refusal_message=None,
+    )

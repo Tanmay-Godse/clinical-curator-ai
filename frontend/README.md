@@ -11,6 +11,8 @@ This package contains the Next.js frontend for the AI Clinical Skills Coach trai
 - stage-by-stage feedback display
 - browser-local session persistence
 - review page hydration and debrief caching
+- cross-session learner fingerprinting for recurring issue patterns
+- adaptive drill prescription rendering
 - admin review queue for human validation
 - equity mode for multilingual feedback, audio coaching, low-bandwidth capture, cheap-phone compatibility, and offline-first practice logging
 - open learning-library page for public rubric and benchmark assets
@@ -60,12 +62,14 @@ What is stored:
 
 - active session id per procedure
 - local auth user for the selected role
+- optional session ownership metadata so saved sessions can be grouped per learner
 - calibration state
 - equity-mode settings per session
 - per-stage attempt history
+- graded vs not-graded attempt state
 - offline-only practice logs
 - score deltas and coaching text
-- cached debrief output keyed by a review signature
+- cached debrief output keyed by a review signature that includes learner-profile inputs
 
 How debrief caching works:
 
@@ -83,7 +87,8 @@ How debrief caching works:
 - the trainer sends `simulation_confirmation` before analysis
 - the trainer can send `feedback_language` and `equity_mode` for multilingual and lower-resource coaching
 - blocked or low-confidence responses can surface `review_case_id` values from the backend queue
-- the review page debrief request is driven from stored session events
+- the review page debrief request is driven from stored session events plus a frontend-built learner profile
+- stage advancement only unlocks after a graded `pass`
 - the review page can play read-aloud coaching when equity mode audio is enabled and browser speech synthesis is available
 
 ## Common Issues
@@ -113,6 +118,10 @@ If the dev server still gets into a bad state, stop it and start it again:
 ```bash
 npm run dev
 ```
+
+### The trainer says "Not graded - retake required"
+
+That means the backend refused to attach a trustworthy score, usually because the frame was unclear, confidence was too low, or the safety gate blocked autonomous scoring. Retake the step with a clearer view of the practice surface and tool.
 
 ### I want to test offline-first practice logging
 

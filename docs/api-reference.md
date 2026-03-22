@@ -396,6 +396,11 @@ Returns the human validation queue.
 - `status`: optional `pending` or `resolved`
 - `session_id`: optional session filter
 
+### Response notes
+
+- each case includes `source`, `analysis_blocked`, `safety_gate`, and the initial AI assessment
+- resolved cases may also include `corrected_step_status`, `corrected_coaching_message`, `reviewer_notes`, and `rubric_feedback`
+
 ## `POST /review-cases/{case_id}/resolve`
 
 Resolves a flagged session with human feedback.
@@ -411,6 +416,11 @@ Resolves a flagged session with human feedback.
   "rubric_feedback": "Add a stronger low-confidence escalation rule for shallow entries."
 }
 ```
+
+### Status codes
+
+- `200`: case resolved successfully
+- `404`: review case id not found
 
 ## `POST /debrief`
 
@@ -549,6 +559,7 @@ Optional request addition:
 
 - `graded_attempt_count` and `not_graded_attempt_count` are always present
 - `error_fingerprint` is always present, even when it is empty
+- `adaptive_drill.instructions` always has 3 items
 - `strengths` always has 3 items
 - `improvement_areas` always has 3 items
 - `practice_plan` always has 3 items

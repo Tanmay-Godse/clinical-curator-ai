@@ -130,6 +130,7 @@ export type CoachChatResponse = {
   camera_observations: string[];
   stage_focus: string[];
   learner_goal_summary: string;
+  learner_transcript: string;
 };
 
 export type Issue = {
