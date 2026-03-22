@@ -84,7 +84,7 @@ class Settings(BaseSettings):
         ),
     )
     ai_coach_max_tokens: int = Field(
-        default=900,
+        default=450,
         validation_alias=AliasChoices(
             "AI_COACH_MAX_TOKENS",
             "OPENAI_COACH_MAX_TOKENS",

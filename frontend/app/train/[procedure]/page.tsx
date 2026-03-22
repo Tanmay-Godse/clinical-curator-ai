@@ -54,10 +54,10 @@ import type {
 
 const AUTO_COACH_INTERVAL_MS = 1_000;
 const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
-const VOICE_RECORDING_MAX_DURATION_MS = 14_000;
-const VOICE_RECORDING_MIN_SPEECH_MS = 260;
-const VOICE_RECORDING_SILENCE_DURATION_MS = 1_700;
-const VOICE_POST_SPEAK_LISTEN_DELAY_MS = 350;
+const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
+const VOICE_RECORDING_MIN_SPEECH_MS = 220;
+const VOICE_RECORDING_SILENCE_DURATION_MS = 800;
+const VOICE_POST_SPEAK_LISTEN_DELAY_MS = 120;
 const VOICE_RELISTEN_DELAY_MS = 120;
 const VOICE_RECOVERY_RETRY_DELAY_MS = 250;
 const VOICE_PROACTIVE_REPROMPT_DELAY_MS = 500;
@@ -951,9 +951,11 @@ export default function TrainProcedurePage() {
 
   const requestCoachTurn = useCallback(async ({
     audioClip,
+    includeImage = true,
     messages,
   }: {
     audioClip?: RecordedVoiceClip | null;
+    includeImage?: boolean;
     messages: CoachChatMessage[];
   }): Promise<CoachChatResponse | null> => {
     if (!procedure || !currentStage || !session || !authUser) {
@@ -965,7 +967,7 @@ export default function TrainProcedurePage() {
 
     try {
       const capturedFrame =
-        cameraReady && simulationConfirmed
+        includeImage && cameraReady && simulationConfirmed
           ? await cameraRef.current?.captureFrame()
           : null;
 
@@ -1310,6 +1312,7 @@ export default function TrainProcedurePage() {
 
         const learnerResponse = await requestCoachTurn({
           audioClip: learnerClip,
+          includeImage: false,
           messages: coachMessagesRef.current.slice(-6),
         });
 

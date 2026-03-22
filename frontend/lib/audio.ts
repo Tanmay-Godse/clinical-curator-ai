@@ -141,7 +141,7 @@ const VOICE_PRESET_CONFIG: Record<
   }
 > = {
   guide_female: {
-    preferBrowserFirst: false,
+    preferBrowserFirst: true,
     preferredGender: "female",
     pitch: 1.14,
     rate: 0.98,
@@ -162,7 +162,7 @@ const VOICE_PRESET_CONFIG: Record<
     ],
   },
   mentor_female: {
-    preferBrowserFirst: false,
+    preferBrowserFirst: true,
     preferredGender: "female",
     pitch: 1.02,
     rate: 0.92,
@@ -180,7 +180,7 @@ const VOICE_PRESET_CONFIG: Record<
     ],
   },
   system_default: {
-    preferBrowserFirst: false,
+    preferBrowserFirst: true,
     preferredGender: "neutral",
     pitch: 1,
     rate: 1,
@@ -208,9 +208,9 @@ export type VoiceRecordingOptions = {
   silenceThreshold?: number;
 };
 
-const DEFAULT_VOICE_RECORDING_MAX_DURATION_MS = 14_000;
-const DEFAULT_VOICE_RECORDING_MIN_SPEECH_MS = 260;
-const DEFAULT_VOICE_RECORDING_SILENCE_DURATION_MS = 1_700;
+const DEFAULT_VOICE_RECORDING_MAX_DURATION_MS = 10_000;
+const DEFAULT_VOICE_RECORDING_MIN_SPEECH_MS = 220;
+const DEFAULT_VOICE_RECORDING_SILENCE_DURATION_MS = 800;
 const DEFAULT_VOICE_RECORDING_SILENCE_THRESHOLD = 0.012;
 const DEFAULT_VOICE_RECORDING_FALLBACK_RMS = 0.006;
 const DEFAULT_VOICE_RECORDING_MIN_CLIP_DURATION_MS = 650;
@@ -727,16 +727,6 @@ async function speakTextWithFallback(
 ): Promise<boolean> {
   stopSpeechPlayback();
 
-  const didPlayBackendAudio = await playBackendSpeech(
-    text,
-    language,
-    preset,
-    waitForCompletion,
-  );
-  if (didPlayBackendAudio) {
-    return true;
-  }
-
   if (shouldPreferBrowserSpeech(language, preset)) {
     const didPlayBrowserSpeech = await playBrowserSpeech(
       text,
@@ -747,6 +737,16 @@ async function speakTextWithFallback(
     if (didPlayBrowserSpeech) {
       return true;
     }
+  }
+
+  const didPlayBackendAudio = await playBackendSpeech(
+    text,
+    language,
+    preset,
+    waitForCompletion,
+  );
+  if (didPlayBackendAudio) {
+    return true;
   }
 
   if (!canUseSpeechSynthesis()) {
