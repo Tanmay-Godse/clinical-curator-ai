@@ -35,6 +35,7 @@ class AnalyzeFrameRequest(BaseModel):
     simulation_confirmation: bool = False
     session_id: str | None = None
     student_name: str | None = None
+    student_username: str | None = None
     feedback_language: FeedbackLanguage = "en"
     equity_mode: EquityModeConfig = Field(default_factory=EquityModeConfig)
 

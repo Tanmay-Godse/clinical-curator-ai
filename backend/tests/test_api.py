@@ -582,6 +582,7 @@ def test_review_cases_route_lists_and_resolves_cases(tmp_path, monkeypatch) -> N
         stage_id="needle_entry",
         skill_level="beginner",
         student_name="Student User",
+        student_username="student.user",
         trigger_reason="Low confidence triggered human review.",
         analysis_blocked=False,
         initial_step_status="retry",
@@ -600,6 +601,7 @@ def test_review_cases_route_lists_and_resolves_cases(tmp_path, monkeypatch) -> N
     data = response.json()
     assert len(data) == 1
     assert data[0]["id"] == created_case.id
+    assert data[0]["student_username"] == "student.user"
 
     resolve_response = client.post(
         f"/api/v1/review-cases/{created_case.id}/resolve",

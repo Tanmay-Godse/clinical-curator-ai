@@ -177,6 +177,7 @@ export type AnalyzeFrameRequest = {
   simulation_confirmation: boolean;
   session_id?: string;
   student_name?: string;
+  student_username?: string;
   feedback_language: FeedbackLanguage;
   equity_mode: ApiEquityMode;
 };
@@ -341,6 +342,7 @@ export type ReviewCase = {
   stage_id: string;
   skill_level: SkillLevel;
   student_name?: string | null;
+  student_username?: string | null;
   created_at: string;
   trigger_reason: string;
   analysis_blocked: boolean;

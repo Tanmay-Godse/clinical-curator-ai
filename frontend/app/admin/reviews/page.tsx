@@ -29,6 +29,25 @@ function createResolutionDraft(): ResolutionDraft {
   };
 }
 
+function formatLearnerLabel(caseItem: ReviewCase) {
+  const studentName = caseItem.student_name?.trim();
+  const studentUsername = caseItem.student_username?.trim();
+
+  if (studentName && studentUsername) {
+    return `${studentName} (@${studentUsername})`;
+  }
+
+  if (studentName) {
+    return studentName;
+  }
+
+  if (studentUsername) {
+    return `@${studentUsername}`;
+  }
+
+  return "Unknown learner";
+}
+
 export default function AdminReviewPage() {
   const router = useRouter();
   const [authUser, setAuthUser] = useState<AuthUser | null>(null);
@@ -305,6 +324,9 @@ export default function AdminReviewPage() {
                   <strong>{caseItem.stage_id.replaceAll("_", " ")}</strong>
                   <span className="pill">{caseItem.status}</span>
                 </header>
+                <p className="review-subtle">
+                  Learner: <strong>{formatLearnerLabel(caseItem)}</strong>
+                </p>
                 <p className="review-subtle">
                   Source: {caseItem.source}. Session: {caseItem.session_id ?? "not linked"}.
                 </p>

@@ -35,6 +35,18 @@ const FEMALE_VOICE_HINTS = [
   "allison",
   "ava",
   "aria",
+  "jenny",
+  "jenny neural",
+  "aria online",
+  "jenny online",
+  "michelle",
+  "kimberly",
+  "kendra",
+  "ivy",
+  "joanna",
+  "ruth",
+  "salli",
+  "serena",
   "susan",
   "sara",
   "hazel",
@@ -49,6 +61,51 @@ const US_ENGLISH_VOICE_HINTS = [
   "new york",
   "new york city",
   "united states",
+  "google us english",
+  "english (america)",
+  "english us",
+  "microsoft aria",
+  "microsoft jenny",
+  "jenny online",
+  "aria online",
+  "samantha",
+  "ava",
+  "allison",
+];
+
+const NON_US_ENGLISH_VOICE_HINTS = [
+  "en-gb",
+  "en-au",
+  "en-ie",
+  "en-in",
+  "british",
+  "great britain",
+  "received pronunciation",
+  "scotland",
+  "west midlands",
+  "lancaster",
+  "irish",
+  "australia",
+  "india",
+  "uk english",
+];
+
+const EN_US_FEMALE_PRIORITY_HINTS = [
+  "microsoft jenny",
+  "microsoft aria",
+  "jenny online",
+  "aria online",
+  "samantha",
+  "allison",
+  "ava",
+  "kendra",
+  "kimberly",
+  "joanna",
+  "ivy",
+  "ruth",
+  "salli",
+  "serena",
+  "victoria",
 ];
 
 export const COACH_VOICE_OPTIONS: Array<{
@@ -94,6 +151,11 @@ const VOICE_PRESET_CONFIG: Record<
       "ava",
       "emma",
       "jenny",
+      "joanna",
+      "kimberly",
+      "kendra",
+      "michelle",
+      "ruth",
       "samantha",
       "victoria",
       "zira",
@@ -109,8 +171,10 @@ const VOICE_PRESET_CONFIG: Record<
       "hazel",
       "karen",
       "luna",
+      "michelle",
       "moira",
       "monica",
+      "ruth",
       "sara",
       "susan",
     ],
@@ -337,6 +401,8 @@ function getPreferredSpeechVoice(
   const requestedPrefix = requestedLanguage.split("-")[0] ?? requestedLanguage;
   const voices = window.speechSynthesis.getVoices();
   const presetConfig = VOICE_PRESET_CONFIG[preset];
+  const prefersUsFemaleEnglish =
+    requestedLanguage === "en-us" && presetConfig.preferredGender === "female";
 
   if (voices.length === 0) {
     return null;
@@ -349,8 +415,20 @@ function getPreferredSpeechVoice(
     const voiceName = `${voice.name} ${voice.voiceURI}`.toLowerCase();
     const voiceLanguage = voice.lang.toLowerCase();
     const voicePrefix = voiceLanguage.split("-")[0] ?? voiceLanguage;
+    const isExactRequestedLanguage =
+      voiceLanguage === requestedLanguage ||
+      voiceLanguage.startsWith(`${requestedLanguage}-`);
+    const femaleMatch = FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint));
+    const maleMatch = MALE_VOICE_HINTS.some((hint) => voiceName.includes(hint));
+    const usEnglishMatch = US_ENGLISH_VOICE_HINTS.some((hint) => voiceName.includes(hint));
+    const nonUsEnglishMatch = NON_US_ENGLISH_VOICE_HINTS.some((hint) =>
+      voiceName.includes(hint),
+    );
+    const priorityHintIndex = EN_US_FEMALE_PRIORITY_HINTS.findIndex((hint) =>
+      voiceName.includes(hint),
+    );
     const languageScore =
-      voiceLanguage === requestedLanguage
+      isExactRequestedLanguage
         ? 30
         : voicePrefix === requestedPrefix
           ? 18
@@ -362,18 +440,38 @@ function getPreferredSpeechVoice(
       : 0;
     const usEnglishScore =
       requestedLanguage === "en-us" &&
-      US_ENGLISH_VOICE_HINTS.some((hint) => voiceName.includes(hint))
-        ? 16
+      usEnglishMatch
+        ? 24
         : 0;
+    const exactUsLanguageScore =
+      prefersUsFemaleEnglish && isExactRequestedLanguage ? 26 : 0;
     const femaleScore =
       presetConfig.preferredGender === "female" &&
-      FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
-        ? 20
+      femaleMatch
+        ? 26
         : 0;
     const malePenalty =
       presetConfig.preferredGender === "female" &&
-      MALE_VOICE_HINTS.some((hint) => voiceName.includes(hint))
-        ? -18
+      maleMatch
+        ? -42
+        : 0;
+    const nonUsEnglishPenalty =
+      prefersUsFemaleEnglish &&
+      nonUsEnglishMatch
+        ? -24
+        : 0;
+    const enUsFemalePriorityScore =
+      prefersUsFemaleEnglish && priorityHintIndex >= 0
+        ? 90 - priorityHintIndex
+        : 0;
+    const noFemaleHintPenalty =
+      prefersUsFemaleEnglish && !femaleMatch ? -22 : 0;
+    const nonUsLanguagePenalty =
+      prefersUsFemaleEnglish &&
+      voicePrefix === "en" &&
+      !isExactRequestedLanguage &&
+      !usEnglishMatch
+        ? -32
         : 0;
     const localServiceScore = voice.localService ? 4 : 0;
     const defaultScore = voice.default ? 2 : 0;
@@ -381,8 +479,13 @@ function getPreferredSpeechVoice(
       languageScore +
       presetHintScore +
       usEnglishScore +
+      exactUsLanguageScore +
+      enUsFemalePriorityScore +
       femaleScore +
       malePenalty +
+      nonUsEnglishPenalty +
+      noFemaleHintPenalty +
+      nonUsLanguagePenalty +
       localServiceScore +
       defaultScore;
 
@@ -402,7 +505,7 @@ function configureUtterance(
 ) {
   const preferredVoice = getPreferredSpeechVoice(language, preset);
   const presetConfig = VOICE_PRESET_CONFIG[preset];
-  utterance.lang = preferredVoice?.lang || getSpeechLanguageCode(language);
+  utterance.lang = getSpeechLanguageCode(language);
   if (preferredVoice) {
     utterance.voice = preferredVoice;
   }
@@ -423,13 +526,7 @@ function shouldPreferBrowserSpeech(
     return false;
   }
 
-  const preferredVoice = getPreferredSpeechVoice(language, preset);
-  if (!preferredVoice) {
-    return false;
-  }
-
-  const voiceName = `${preferredVoice.name} ${preferredVoice.voiceURI}`.toLowerCase();
-  return FEMALE_VOICE_HINTS.some((hint) => voiceName.includes(hint));
+  return true;
 }
 
 export function speakText(
@@ -653,6 +750,14 @@ async function playBackendSpeech(
   waitForCompletion: boolean,
 ): Promise<boolean> {
   if (typeof window === "undefined") {
+    return false;
+  }
+
+  if (
+    canUseSpeechSynthesis() &&
+    language === "en" &&
+    (preset === "guide_female" || preset === "mentor_female")
+  ) {
     return false;
   }
 

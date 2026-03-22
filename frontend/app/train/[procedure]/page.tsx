@@ -848,6 +848,7 @@ export default function TrainProcedurePage() {
         simulation_confirmation: simulationConfirmed,
         session_id: session.id,
         student_name: authUser.name,
+        student_username: authUser.username,
         feedback_language: equityMode.feedbackLanguage,
         equity_mode: toApiEquityMode(equityMode),
       });

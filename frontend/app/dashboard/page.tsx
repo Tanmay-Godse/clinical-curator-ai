@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo } from "react";
 
 import { AppFrame } from "@/components/AppFrame";
 import type { DashboardIconName } from "@/components/DashboardIcon";
@@ -12,12 +12,13 @@ import {
   DEFAULT_TRAINING_HREF,
 } from "@/lib/appShell";
 import { buildLearnerProfileSnapshot, inferEventGraded } from "@/lib/learnerProfile";
-import { clearAuthUser, getAuthUser, listSessionsForOwner } from "@/lib/storage";
+import { clearAuthUser } from "@/lib/storage";
 import type {
   AuthUser,
   FeedbackLanguage,
   SessionRecord,
 } from "@/lib/types";
+import { useWorkspaceUser } from "@/lib/useWorkspaceUser";
 
 type LeaderboardEntry = {
   accent: string;
@@ -369,23 +370,13 @@ function RecentSessionPreview({ sessions }: { sessions: SessionRecord[] }) {
 
 export default function DashboardPage() {
   const router = useRouter();
-  const [user] = useState<AuthUser | null>(() =>
-    typeof window === "undefined" ? null : getAuthUser(),
-  );
-  const [sessions] = useState<SessionRecord[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-
-    const nextUser = getAuthUser();
-    return nextUser ? listSessionsForOwner(nextUser.username) : [];
-  });
+  const { hydrated, sessions, user } = useWorkspaceUser();
 
   useEffect(() => {
-    if (!user) {
+    if (hydrated && !user) {
       router.replace("/login?role=student&next=%2Fdashboard");
     }
-  }, [router, user]);
+  }, [hydrated, router, user]);
 
   const snapshot = useMemo(
     () => deriveDashboardSnapshot(user, sessions),
@@ -403,7 +394,7 @@ export default function DashboardPage() {
     router.push("/login");
   }
 
-  if (!user) {
+  if (!hydrated || !user) {
     return (
       <AppFrame
         brandSubtitle="Precision training dashboard"

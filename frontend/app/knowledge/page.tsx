@@ -7,18 +7,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppFrame } from "@/components/AppFrame";
 import { generateKnowledgePack } from "@/lib/api";
 import { buildSharedSidebarItems, DEFAULT_TRAINING_HREF } from "@/lib/appShell";
-import {
-  clearAuthUser,
-  getAuthUser,
-  listSessionsForOwner,
-} from "@/lib/storage";
+import { clearAuthUser } from "@/lib/storage";
 import type {
-  AuthUser,
   FeedbackLanguage,
   KnowledgePackResponse,
   SessionRecord,
   SkillLevel,
 } from "@/lib/types";
+import { useWorkspaceUser } from "@/lib/useWorkspaceUser";
 
 const KNOWLEDGE_PROCEDURE_ID = "simple-interrupted-suture";
 const KNOWLEDGE_PROGRESS_PREFIX = "ai-clinical-skills-coach:knowledge-progress";
@@ -166,17 +162,7 @@ function resetQuizState() {
 
 export default function KnowledgePage() {
   const router = useRouter();
-  const [user] = useState<AuthUser | null>(() =>
-    typeof window === "undefined" ? null : getAuthUser(),
-  );
-  const [sessions] = useState<SessionRecord[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-
-    const currentUser = getAuthUser();
-    return currentUser ? listSessionsForOwner(currentUser.username) : [];
-  });
+  const { hydrated, sessions, user } = useWorkspaceUser();
   const [knowledgePack, setKnowledgePack] = useState<KnowledgePackResponse | null>(null);
   const [packError, setPackError] = useState<string | null>(null);
   const [isPackLoading, setIsPackLoading] = useState(false);
@@ -190,13 +176,15 @@ export default function KnowledgePage() {
   const knowledgeRequestIdRef = useRef(0);
 
   useEffect(() => {
-    if (!user) {
+    if (hydrated && !user) {
       router.replace("/login?role=student&next=%2Fknowledge");
       return;
     }
 
-    setProgress(readProgress(user.username));
-  }, [router, user]);
+    if (user) {
+      setProgress(readProgress(user.username));
+    }
+  }, [hydrated, router, user]);
 
   const latestReviewHref = useMemo(() => deriveReviewHref(sessions), [sessions]);
   const hasSavedSession = sessions.length > 0;
@@ -485,7 +473,7 @@ export default function KnowledgePage() {
     });
   }
 
-  if (!user) {
+  if (!hydrated || !user) {
     return (
       <AppFrame
         brandSubtitle="Knowledge lab"

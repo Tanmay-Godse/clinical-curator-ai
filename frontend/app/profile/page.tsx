@@ -11,25 +11,13 @@ import {
 } from "@/lib/appShell";
 import {
   clearAuthUser,
-  getAuthUser,
-  listSessionsForOwner,
   updateAuthUserProfile,
 } from "@/lib/storage";
-import type { AuthUser, SessionRecord } from "@/lib/types";
+import { useWorkspaceUser } from "@/lib/useWorkspaceUser";
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [user, setUser] = useState<AuthUser | null>(() =>
-    typeof window === "undefined" ? null : getAuthUser(),
-  );
-  const [sessions, setSessions] = useState<SessionRecord[]>(() => {
-    if (typeof window === "undefined") {
-      return [];
-    }
-
-    const nextUser = getAuthUser();
-    return nextUser ? listSessionsForOwner(nextUser.username) : [];
-  });
+  const { hydrated, sessions, sync, user } = useWorkspaceUser();
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [currentPassword, setCurrentPassword] = useState("");
@@ -40,10 +28,10 @@ export default function ProfilePage() {
   const [isSaving, setIsSaving] = useState(false);
 
   useEffect(() => {
-    if (!user) {
+    if (hydrated && !user) {
       router.replace("/login?role=student&next=%2Fprofile");
     }
-  }, [router, user]);
+  }, [hydrated, router, user]);
 
   useEffect(() => {
     if (!user) {
@@ -78,15 +66,14 @@ export default function ProfilePage() {
     setIsSaving(true);
 
     try {
-      const updatedUser = await updateAuthUserProfile({
+      await updateAuthUserProfile({
         name,
         username,
         currentPassword,
         newPassword: newPassword.trim() || undefined,
       });
 
-      setUser(updatedUser);
-      setSessions(listSessionsForOwner(updatedUser.username));
+      sync();
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
@@ -102,7 +89,7 @@ export default function ProfilePage() {
     }
   }
 
-  if (!user) {
+  if (!hydrated || !user) {
     return (
       <AppFrame
         brandSubtitle="Workspace profile"

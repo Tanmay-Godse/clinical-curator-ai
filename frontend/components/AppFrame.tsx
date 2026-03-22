@@ -126,10 +126,10 @@ export function AppFrame({
           {footerPrimaryAction || footerSecondaryActions.length > 0 ? (
             <div className="dashboard-sidebar-footer">
               {footerPrimaryAction ? <FooterActionButton action={footerPrimaryAction} /> : null}
-              {footerSecondaryActions.map((action) => (
+              {footerSecondaryActions.map((action, index) => (
                 <FooterActionButton
                   action={action}
-                  key={`${action.href ?? action.label}:${action.label}`}
+                  key={`${action.href ?? action.label}:${action.label}:${index}`}
                 />
               ))}
             </div>
@@ -152,11 +152,11 @@ export function AppFrame({
                   {statusPill.label}
                 </span>
               ) : null}
-              {topActions.map((action) => (
+              {topActions.map((action, index) => (
                 <Link
                   className={`dashboard-action-pill ${action.strong ? "is-strong" : ""}`}
                   href={action.href}
-                  key={`${action.href}:${action.label}`}
+                  key={`${action.href}:${action.label}:${index}`}
                 >
                   {action.label}
                 </Link>

@@ -16,6 +16,7 @@ class HumanReviewCase(BaseModel):
     stage_id: str
     skill_level: Literal["beginner", "intermediate"]
     student_name: str | None = None
+    student_username: str | None = None
     created_at: str
     trigger_reason: str
     analysis_blocked: bool = False

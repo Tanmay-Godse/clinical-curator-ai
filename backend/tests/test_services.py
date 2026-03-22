@@ -417,6 +417,7 @@ def test_review_queue_service_resolves_case(tmp_path, monkeypatch) -> None:
         stage_id="needle_entry",
         skill_level="beginner",
         student_name="Student User",
+        student_username="student.user",
         trigger_reason="The scene may depict a live clinical setting.",
         analysis_blocked=True,
         initial_step_status="unsafe",
@@ -443,3 +444,4 @@ def test_review_queue_service_resolves_case(tmp_path, monkeypatch) -> None:
 
     assert resolved_case.status == "resolved"
     assert resolved_case.reviewer_name == "Faculty Reviewer"
+    assert resolved_case.student_username == "student.user"

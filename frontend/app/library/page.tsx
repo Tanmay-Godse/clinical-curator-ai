@@ -11,12 +11,9 @@ import {
 } from "@/components/DashboardIcon";
 import { getProcedure } from "@/lib/api";
 import { buildSharedSidebarItems, DEFAULT_TRAINING_HREF } from "@/lib/appShell";
-import {
-  clearAuthUser,
-  getAuthUser,
-  listSessionsForOwner,
-} from "@/lib/storage";
-import type { AuthUser, ProcedureDefinition } from "@/lib/types";
+import { clearAuthUser } from "@/lib/storage";
+import type { ProcedureDefinition } from "@/lib/types";
+import { useWorkspaceUser } from "@/lib/useWorkspaceUser";
 
 const LIBRARY_PROCEDURE_ID = "simple-interrupted-suture";
 
@@ -263,9 +260,7 @@ function titleCaseStage(stageId: string) {
 
 export default function LibraryPage() {
   const router = useRouter();
-  const [user] = useState<AuthUser | null>(() =>
-    typeof window === "undefined" ? null : getAuthUser(),
-  );
+  const { hydrated, sessions, user } = useWorkspaceUser();
   const [procedure, setProcedure] = useState<ProcedureDefinition>(fallbackProcedure);
   const [isLoadingProcedure, setIsLoadingProcedure] = useState(true);
   const [procedureError, setProcedureError] = useState<string | null>(null);
@@ -302,13 +297,9 @@ export default function LibraryPage() {
   }, []);
 
   const latestReviewHref = useMemo(() => {
-    if (!user?.username) {
-      return DEFAULT_TRAINING_HREF;
-    }
-
-    const latestSession = listSessionsForOwner(user.username)[0];
+    const latestSession = sessions[0];
     return latestSession ? `/review/${latestSession.id}` : DEFAULT_TRAINING_HREF;
-  }, [user]);
+  }, [sessions]);
   const hasSavedSession = latestReviewHref !== DEFAULT_TRAINING_HREF;
 
   const totalWeight = useMemo(
@@ -348,6 +339,22 @@ export default function LibraryPage() {
   }
 
   const userName = user?.name?.trim() || "Student Clinician";
+
+  if (!hydrated) {
+    return (
+      <AppFrame
+        brandSubtitle="Live practice guide"
+        pageTitle="Library"
+        sidebarItems={buildSharedSidebarItems({ active: "library", userRole: null })}
+      >
+        <section className="dashboard-card dashboard-frame-panel">
+          <span className="dashboard-card-eyebrow">Preparing Library</span>
+          <h2>Loading the practice guide.</h2>
+          <p>We are syncing the signed-in account and the saved review links first.</p>
+        </section>
+      </AppFrame>
+    );
+  }
 
   return (
     <AppFrame
