@@ -9,6 +9,7 @@ from app.providers.base import (
     AIRequestError,
     AIResponseError,
     JSONMessageRequest,
+    is_placeholder_api_key,
 )
 
 
@@ -28,9 +29,9 @@ class AnthropicProvider:
 
     def send_json_message(self, request: JSONMessageRequest) -> dict[str, Any]:
         api_key = self._api_key.strip()
-        if not api_key or api_key == "EMPTY":
+        if not api_key or api_key.upper() == "EMPTY" or is_placeholder_api_key(api_key):
             raise AIConfigurationError(
-                "AI_API_KEY is not configured for Anthropic requests."
+                "AI_API_KEY is not configured for Anthropic requests. Inject the real key through your shell or deployment secret manager first."
             )
 
         payload = {
@@ -75,7 +76,12 @@ class AnthropicProvider:
             ) from exc
 
         if response.status_code >= 400:
-            raise AIRequestError(_extract_error_message(response))
+            error_message = _extract_error_message(response)
+            if _is_invalid_api_key_message(error_message):
+                raise AIConfigurationError(
+                    "AI_API_KEY was rejected by Anthropic. Update the backend secret with a valid key and restart the backend."
+                )
+            raise AIRequestError(error_message)
 
         try:
             response_data = response.json()
@@ -153,6 +159,11 @@ def _extract_error_message(response: httpx.Response) -> str:
             return detail.strip()
 
     return fallback_message
+
+
+def _is_invalid_api_key_message(message: str) -> bool:
+    normalized = message.strip().lower()
+    return "invalid x-api-key" in normalized or "x-api-key" in normalized
 
 
 def _extract_anthropic_tool_input(response_data: dict[str, Any]) -> dict[str, Any]:

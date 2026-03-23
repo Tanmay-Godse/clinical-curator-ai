@@ -1,6 +1,8 @@
+import json
 import hashlib
 import sqlite3
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.api.routes import analyze as analyze_route
@@ -23,6 +25,38 @@ from app.services.ai_client import AIConfigurationError
 from app.services import review_queue_service
 
 client = TestClient(app)
+
+PRIVATE_SEED_ACCOUNTS = json.dumps(
+    [
+        {
+            "id": "account-developer-team",
+            "name": "Developer Team",
+            "username": "developer@gmail.com",
+            "password": "Qwerty@123",
+            "role": "admin",
+            "is_developer": True,
+            "live_session_limit": None,
+        },
+        {
+            "id": "account-team-tanmay",
+            "name": "Tanmay",
+            "username": "tanmay@gmail.com",
+            "password": "QwertY@123",
+            "role": "admin",
+            "is_developer": False,
+            "live_session_limit": 10,
+        },
+    ]
+)
+
+
+@pytest.fixture(autouse=True)
+def clear_private_seed_accounts(monkeypatch) -> None:
+    monkeypatch.delenv("PRIVATE_SEED_ACCOUNTS_JSON", raising=False)
+
+
+def configure_private_seed_accounts(monkeypatch) -> None:
+    monkeypatch.setenv("PRIVATE_SEED_ACCOUNTS_JSON", PRIVATE_SEED_ACCOUNTS)
 
 
 def test_health_route() -> None:
@@ -66,6 +100,7 @@ def test_demo_student_account_preview_and_sign_in(tmp_path, monkeypatch) -> None
 
 
 def test_fixed_developer_account_is_seeded_and_reserved(tmp_path, monkeypatch) -> None:
+    configure_private_seed_accounts(monkeypatch)
     monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
 
     preview_response = client.get(
@@ -106,6 +141,7 @@ def test_fixed_developer_account_is_seeded_and_reserved(tmp_path, monkeypatch) -
 
 
 def test_internal_admin_account_is_seeded_and_can_sign_in(tmp_path, monkeypatch) -> None:
+    configure_private_seed_accounts(monkeypatch)
     monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
 
     preview_response = client.get(
@@ -133,6 +169,7 @@ def test_internal_admin_account_is_seeded_and_can_sign_in(tmp_path, monkeypatch)
 
 
 def test_live_session_limit_can_be_consumed_and_reset_by_admin(tmp_path, monkeypatch) -> None:
+    configure_private_seed_accounts(monkeypatch)
     monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
 
     student_sign_in = client.post(

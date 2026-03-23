@@ -1,12 +1,12 @@
 import json
 from datetime import datetime, timezone
-from pathlib import Path
 from uuid import uuid4
 
+from app.core.storage_paths import runtime_data_path
 from app.schemas.analyze import SafetyGateResult
 from app.schemas.review import HumanReviewCase, ResolveReviewCaseRequest
 
-REVIEW_CASES_PATH = Path(__file__).resolve().parents[1] / "data" / "review_cases.json"
+REVIEW_CASES_PATH = runtime_data_path("review_cases.json")
 
 
 class ReviewCaseNotFoundError(LookupError):

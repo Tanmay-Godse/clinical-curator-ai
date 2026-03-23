@@ -9,13 +9,8 @@ from app.providers.base import (
     AIRequestError,
     AIResponseError,
     JSONMessageRequest,
+    is_placeholder_api_key,
 )
-
-PLACEHOLDER_API_KEYS = {
-    "SET_IN_ENV_MANAGER",
-    "SET_IN_MICROMAMBA_ENV",
-    "YOUR_REAL_KEY_HERE",
-}
 
 
 class OpenAICompatibleProvider:
@@ -32,7 +27,7 @@ class OpenAICompatibleProvider:
 
     def send_json_message(self, request: JSONMessageRequest) -> dict[str, Any]:
         api_key = self._api_key.strip() or "EMPTY"
-        if api_key.upper() in PLACEHOLDER_API_KEYS:
+        if is_placeholder_api_key(api_key):
             raise AIConfigurationError(
                 "AI_API_KEY is still set to a placeholder value. Inject the real key through your shell or micromamba environment first."
             )

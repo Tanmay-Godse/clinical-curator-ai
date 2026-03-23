@@ -20,9 +20,21 @@ import type {
   UpdateAuthAccountInput,
 } from "@/lib/types";
 
-const API_BASE_URL = (
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://localhost:8001/api/v1"
-).replace(/\/$/, "");
+const API_BASE_URL =
+  process.env.NODE_ENV === "development"
+    ? process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
+      "http://localhost:8001/api/v1"
+    : "/api/proxy";
+
+function buildApiUrl(path: string): string {
+  if (!API_BASE_URL) {
+    throw new Error(
+      "NEXT_PUBLIC_API_BASE_URL is not configured for this deployment.",
+    );
+  }
+
+  return `${API_BASE_URL}${path}`;
+}
 
 type AuthAccountApiResponse = {
   id: string;
@@ -96,7 +108,7 @@ async function readJson<T>(response: Response): Promise<T> {
 }
 
 export async function getProcedure(procedureId: string): Promise<ProcedureDefinition> {
-  const response = await fetch(`${API_BASE_URL}/procedures/${procedureId}`, {
+  const response = await fetch(buildApiUrl(`/procedures/${procedureId}`), {
     cache: "no-store",
   });
 
@@ -104,7 +116,7 @@ export async function getProcedure(procedureId: string): Promise<ProcedureDefini
 }
 
 export async function getHealthStatus(): Promise<HealthStatus> {
-  const response = await fetch(`${API_BASE_URL}/health`, {
+  const response = await fetch(buildApiUrl("/health"), {
     cache: "no-store",
   });
 
@@ -114,7 +126,7 @@ export async function getHealthStatus(): Promise<HealthStatus> {
 export async function generateKnowledgePack(
   payload: KnowledgePackRequest,
 ): Promise<KnowledgePackResponse> {
-  const response = await fetch(`${API_BASE_URL}/knowledge-pack`, {
+  const response = await fetch(buildApiUrl("/knowledge-pack"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -130,7 +142,7 @@ export async function previewPersistedAuthAccount(
   identifier: string,
 ): Promise<PersistedAuthAccount | null> {
   const params = new URLSearchParams({ identifier });
-  const response = await fetch(`${API_BASE_URL}/auth/accounts/preview?${params}`, {
+  const response = await fetch(buildApiUrl(`/auth/accounts/preview?${params}`), {
     cache: "no-store",
   });
 
@@ -145,7 +157,7 @@ export async function previewPersistedAuthAccount(
 export async function createPersistedAuthAccount(
   payload: CreateAuthAccountInput,
 ): Promise<PersistedAuthAccount> {
-  const response = await fetch(`${API_BASE_URL}/auth/accounts`, {
+  const response = await fetch(buildApiUrl("/auth/accounts"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -163,7 +175,7 @@ export async function signInPersistedAuthAccount(payload: {
   password: string;
   role?: UserRole;
 }): Promise<PersistedAuthAccount> {
-  const response = await fetch(`${API_BASE_URL}/auth/sign-in`, {
+  const response = await fetch(buildApiUrl("/auth/sign-in"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -180,7 +192,7 @@ export async function updatePersistedAuthAccount(
   accountId: string,
   payload: UpdateAuthAccountInput,
 ): Promise<PersistedAuthAccount> {
-  const response = await fetch(`${API_BASE_URL}/auth/accounts/${accountId}`, {
+  const response = await fetch(buildApiUrl(`/auth/accounts/${accountId}`), {
     body: JSON.stringify({
       name: payload.name,
       username: payload.username,
@@ -206,7 +218,7 @@ export async function listPendingAdminRequests(
     developer_account_id: developerAccountId,
     developer_session_token: developerSessionToken,
   });
-  const response = await fetch(`${API_BASE_URL}/auth/admin-requests?${params}`, {
+  const response = await fetch(buildApiUrl(`/auth/admin-requests?${params}`), {
     cache: "no-store",
   });
 
@@ -219,17 +231,20 @@ async function resolveAdminRequest(
   path: "approve" | "reject",
   payload: AdminRequestDecisionInput,
 ): Promise<PersistedAuthAccount> {
-  const response = await fetch(`${API_BASE_URL}/auth/admin-requests/${accountId}/${path}`, {
-    body: JSON.stringify({
-      developer_account_id: payload.developerAccountId,
-      developer_session_token: payload.developerSessionToken,
-    }),
-    cache: "no-store",
-    headers: {
-      "Content-Type": "application/json",
+  const response = await fetch(
+    buildApiUrl(`/auth/admin-requests/${accountId}/${path}`),
+    {
+      body: JSON.stringify({
+        developer_account_id: payload.developerAccountId,
+        developer_session_token: payload.developerSessionToken,
+      }),
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      method: "POST",
     },
-    method: "POST",
-  });
+  );
 
   const data = await readJson<AuthAccountApiResponse>(response);
   return toPersistedAuthAccount(data);
@@ -257,7 +272,7 @@ export async function listDemoAccounts(
     actor_account_id: actorAccountId,
     actor_session_token: actorSessionToken,
   });
-  const response = await fetch(`${API_BASE_URL}/auth/demo-accounts?${params}`, {
+  const response = await fetch(buildApiUrl(`/auth/demo-accounts?${params}`), {
     cache: "no-store",
   });
 
@@ -269,7 +284,7 @@ export async function consumeLiveSessionAllowance(payload: {
   accountId: string;
   sessionToken: string;
 }): Promise<PersistedAuthAccount> {
-  const response = await fetch(`${API_BASE_URL}/auth/live-sessions/consume`, {
+  const response = await fetch(buildApiUrl("/auth/live-sessions/consume"), {
     body: JSON.stringify({
       account_id: payload.accountId,
       session_token: payload.sessionToken,
@@ -289,20 +304,17 @@ export async function resetDemoAccountQuota(
   accountId: string,
   payload: DemoAccountQuotaResetInput,
 ): Promise<PersistedAuthAccount> {
-  const response = await fetch(
-    `${API_BASE_URL}/auth/accounts/${accountId}/reset-live-sessions`,
-    {
-      body: JSON.stringify({
-        actor_account_id: payload.actorAccountId,
-        actor_session_token: payload.actorSessionToken,
-      }),
-      cache: "no-store",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      method: "POST",
+  const response = await fetch(buildApiUrl(`/auth/accounts/${accountId}/reset-live-sessions`), {
+    body: JSON.stringify({
+      actor_account_id: payload.actorAccountId,
+      actor_session_token: payload.actorSessionToken,
+    }),
+    cache: "no-store",
+    headers: {
+      "Content-Type": "application/json",
     },
-  );
+    method: "POST",
+  });
 
   const data = await readJson<AuthAccountApiResponse>(response);
   return toPersistedAuthAccount(data);
@@ -311,7 +323,7 @@ export async function resetDemoAccountQuota(
 export async function analyzeFrame(
   payload: AnalyzeFrameRequest,
 ): Promise<AnalyzeFrameResponse> {
-  const response = await fetch(`${API_BASE_URL}/analyze-frame`, {
+  const response = await fetch(buildApiUrl("/analyze-frame"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -326,7 +338,7 @@ export async function analyzeFrame(
 export async function coachChat(
   payload: CoachChatRequest,
 ): Promise<CoachChatResponse> {
-  const response = await fetch(`${API_BASE_URL}/coach-chat`, {
+  const response = await fetch(buildApiUrl("/coach-chat"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -341,7 +353,7 @@ export async function coachChat(
 export async function synthesizeCoachSpeech(
   payload: CoachSpeechRequest,
 ): Promise<Blob> {
-  const response = await fetch(`${API_BASE_URL}/tts`, {
+  const response = await fetch(buildApiUrl("/tts"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -371,7 +383,7 @@ export async function synthesizeCoachSpeech(
 export async function generateDebrief(
   payload: DebriefRequest,
 ): Promise<DebriefResponse> {
-  const response = await fetch(`${API_BASE_URL}/debrief`, {
+  const response = await fetch(buildApiUrl("/debrief"), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {
@@ -396,12 +408,9 @@ export async function listReviewCases(filters?: {
   }
 
   const query = params.toString();
-  const response = await fetch(
-    `${API_BASE_URL}/review-cases${query ? `?${query}` : ""}`,
-    {
-      cache: "no-store",
-    },
-  );
+  const response = await fetch(buildApiUrl(`/review-cases${query ? `?${query}` : ""}`), {
+    cache: "no-store",
+  });
 
   return readJson<ReviewCase[]>(response);
 }
@@ -410,7 +419,7 @@ export async function resolveReviewCase(
   caseId: string,
   payload: ResolveReviewCaseRequest,
 ): Promise<ReviewCase> {
-  const response = await fetch(`${API_BASE_URL}/review-cases/${caseId}/resolve`, {
+  const response = await fetch(buildApiUrl(`/review-cases/${caseId}/resolve`), {
     body: JSON.stringify(payload),
     cache: "no-store",
     headers: {

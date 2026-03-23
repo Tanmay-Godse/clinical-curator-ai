@@ -228,6 +228,57 @@ def test_send_json_message_rejects_placeholder_api_key(monkeypatch) -> None:
         )
 
 
+def test_send_json_message_rejects_placeholder_api_key_for_anthropic(monkeypatch) -> None:
+    monkeypatch.setattr(ai_client.settings, "ai_provider", "anthropic")
+    monkeypatch.setattr(
+        ai_client.settings,
+        "ai_api_base_url",
+        "https://api.anthropic.com/v1/messages",
+    )
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "SET_IN_ENV_MANAGER")
+
+    with pytest.raises(ai_client.AIConfigurationError):
+        ai_client.send_json_message(
+            model="claude-sonnet-demo",
+            max_tokens=200,
+            system_prompt="Return structured coaching.",
+            user_content=[{"type": "text", "text": "Analyze this frame."}],
+            output_schema={"type": "object"},
+        )
+
+
+def test_send_json_message_maps_invalid_anthropic_api_key_to_configuration_error(
+    monkeypatch,
+) -> None:
+    def fake_post(url, *, headers, json, timeout):
+        return FakeResponse(
+            status_code=401,
+            json_data={
+                "error": {
+                    "message": "invalid x-api-key",
+                }
+            },
+        )
+
+    monkeypatch.setattr(ai_client.settings, "ai_provider", "anthropic")
+    monkeypatch.setattr(
+        ai_client.settings,
+        "ai_api_base_url",
+        "https://api.anthropic.com/v1/messages",
+    )
+    monkeypatch.setattr(ai_client.settings, "ai_api_key", "wrong-key")
+    monkeypatch.setattr(anthropic.httpx, "post", fake_post)
+
+    with pytest.raises(ai_client.AIConfigurationError):
+        ai_client.send_json_message(
+            model="claude-sonnet-demo",
+            max_tokens=200,
+            system_prompt="Return structured coaching.",
+            user_content=[{"type": "text", "text": "Analyze this frame."}],
+            output_schema={"type": "object"},
+        )
+
+
 def test_send_json_message_rejects_audio_for_zai(monkeypatch) -> None:
     monkeypatch.setattr(ai_client.settings, "ai_provider", "auto")
     monkeypatch.setattr(ai_client.settings, "ai_api_base_url", "https://api.z.ai/api/paas/v4")

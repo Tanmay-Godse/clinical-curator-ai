@@ -1,9 +1,12 @@
+import json
 import hashlib
+import os
 import secrets
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 
+from app.core.storage_paths import runtime_data_path
 from app.schemas.auth import (
     AuthAccountPreview,
     ConsumeLiveSessionRequest,
@@ -14,16 +17,11 @@ from app.schemas.auth import (
     UpdateAuthAccountRequest,
 )
 
-AUTH_DB_PATH = Path(__file__).resolve().parents[1] / "data" / "auth.db"
+AUTH_DB_PATH = runtime_data_path("auth.db")
 CURRENT_PASSWORD_SCHEME = "pbkdf2_sha256"
 PASSWORD_SALT_BYTES = 16
 PASSWORD_PBKDF2_ITERATIONS = 310_000
 DEFAULT_LIVE_SESSION_LIMIT = 10
-
-DEVELOPER_ACCOUNT_ID = "account-developer-team"
-DEVELOPER_ACCOUNT_NAME = "Developer Team"
-DEVELOPER_ACCOUNT_USERNAME = "developer@gmail.com"
-DEVELOPER_ACCOUNT_PASSWORD = "Qwerty@123"
 
 ADMIN_APPROVAL_PENDING = "pending"
 ADMIN_APPROVAL_NONE = "none"
@@ -68,43 +66,24 @@ PUBLIC_DEMO_ACCOUNTS: tuple[dict[str, object], ...] = (
     },
 )
 
-INTERNAL_TEAM_ACCOUNTS: tuple[dict[str, object], ...] = (
+LEGACY_PRIVATE_SEEDED_ACCOUNT_IDS = frozenset(
     {
-        "id": "account-team-tanmay",
-        "name": "Tanmay",
-        "username": "tanmay@gmail.com",
-        "password": "QwertY@123",
-        "role": "admin",
-        "is_developer": False,
-        "live_session_limit": DEFAULT_LIVE_SESSION_LIMIT,
-    },
+        "account-developer-team",
+        "account-team-tanmay",
+        "account-team-tanay",
+        "account-team-khyati",
+        "account-team-amitesh",
+    }
+)
+
+LEGACY_PRIVATE_SEEDED_USERNAMES = frozenset(
     {
-        "id": "account-team-tanay",
-        "name": "Tanay",
-        "username": "tanay@gmail.com",
-        "password": "QwertY@123",
-        "role": "admin",
-        "is_developer": False,
-        "live_session_limit": DEFAULT_LIVE_SESSION_LIMIT,
-    },
-    {
-        "id": "account-team-khyati",
-        "name": "Khyati",
-        "username": "khyati@gmail.com",
-        "password": "QwertY@123",
-        "role": "admin",
-        "is_developer": False,
-        "live_session_limit": DEFAULT_LIVE_SESSION_LIMIT,
-    },
-    {
-        "id": "account-team-amitesh",
-        "name": "Amitesh",
-        "username": "amitesh@gmail.com",
-        "password": "QwertY@123",
-        "role": "admin",
-        "is_developer": False,
-        "live_session_limit": DEFAULT_LIVE_SESSION_LIMIT,
-    },
+        "developer@gmail.com",
+        "tanmay@gmail.com",
+        "tanay@gmail.com",
+        "khyati@gmail.com",
+        "amitesh@gmail.com",
+    }
 )
 
 
@@ -279,9 +258,9 @@ def update_auth_account(
         raise AuthValidationError("Display name is required.")
 
     username = _validate_username(payload.username)
-    if username == DEVELOPER_ACCOUNT_USERNAME:
+    if username != account.username and username in _configured_seed_usernames():
         raise AuthAccountConflictError(
-            "That developer account email is reserved and cannot be assigned here."
+            "That fixed demo account email is reserved and cannot be assigned here."
         )
     current_password = _validate_password(payload.current_password)
     new_password = (
@@ -686,22 +665,156 @@ def _ensure_store() -> None:
 
 
 def _ensure_seeded_accounts(connection: sqlite3.Connection) -> None:
-    seeded_accounts = (
-        {
-            "id": DEVELOPER_ACCOUNT_ID,
-            "name": DEVELOPER_ACCOUNT_NAME,
-            "username": DEVELOPER_ACCOUNT_USERNAME,
-            "password": DEVELOPER_ACCOUNT_PASSWORD,
-            "role": "admin",
-            "is_developer": True,
-            "live_session_limit": None,
-        },
-        *PUBLIC_DEMO_ACCOUNTS,
-        *INTERNAL_TEAM_ACCOUNTS,
-    )
+    private_seeded_accounts = _load_private_seeded_accounts()
+    _remove_legacy_private_seeded_accounts(connection, private_seeded_accounts)
+    seeded_accounts = (*PUBLIC_DEMO_ACCOUNTS, *private_seeded_accounts)
 
     for seed in seeded_accounts:
         _upsert_seeded_account(connection, seed)
+
+
+def _configured_seed_usernames() -> set[str]:
+    return {
+        _normalize_username(str(seed["username"]))
+        for seed in (*PUBLIC_DEMO_ACCOUNTS, *_load_private_seeded_accounts())
+    }
+
+
+def _load_private_seeded_accounts() -> tuple[dict[str, object], ...]:
+    raw = os.getenv("PRIVATE_SEED_ACCOUNTS_JSON", "").strip()
+    if not raw:
+        return ()
+
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(
+            "PRIVATE_SEED_ACCOUNTS_JSON must be valid JSON."
+        ) from exc
+
+    if not isinstance(parsed, list):
+        raise RuntimeError(
+            "PRIVATE_SEED_ACCOUNTS_JSON must be a JSON array of account objects."
+        )
+
+    normalized_accounts: list[dict[str, object]] = []
+    seen_ids: set[str] = set()
+    seen_usernames: set[str] = set()
+
+    for index, item in enumerate(parsed):
+        if not isinstance(item, dict):
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} must be an object."
+            )
+
+        account_id = str(item.get("id", "")).strip()
+        if not account_id:
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} is missing a non-empty id."
+            )
+        if account_id in seen_ids:
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} reuses id '{account_id}'."
+            )
+
+        name = str(item.get("name", "")).strip()
+        if not name:
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} is missing a non-empty name."
+            )
+
+        username = _validate_username(str(item.get("username", "")))
+        if username in seen_usernames:
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} reuses username '{username}'."
+            )
+
+        role = str(item.get("role", "admin")).strip()
+        if role not in {"student", "admin"}:
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} has invalid role '{role}'."
+            )
+
+        is_developer = bool(item.get("is_developer", False))
+        if is_developer and role != "admin":
+            raise RuntimeError(
+                f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} must use role 'admin' when is_developer is true."
+            )
+
+        password = _validate_password(str(item.get("password", "")))
+        live_session_limit_input = item.get(
+            "live_session_limit",
+            None if is_developer else DEFAULT_LIVE_SESSION_LIMIT,
+        )
+
+        if live_session_limit_input is None:
+            live_session_limit = None
+        else:
+            if isinstance(live_session_limit_input, bool) or not isinstance(
+                live_session_limit_input, int
+            ):
+                raise RuntimeError(
+                    f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} must use an integer or null for live_session_limit."
+                )
+            if live_session_limit_input < 0:
+                raise RuntimeError(
+                    f"PRIVATE_SEED_ACCOUNTS_JSON entry {index} must not use a negative live_session_limit."
+                )
+            live_session_limit = live_session_limit_input
+
+        normalized_accounts.append(
+            {
+                "id": account_id,
+                "name": name,
+                "username": username,
+                "password": password,
+                "role": role,
+                "is_developer": is_developer,
+                "live_session_limit": live_session_limit,
+            }
+        )
+        seen_ids.add(account_id)
+        seen_usernames.add(username)
+
+    return tuple(normalized_accounts)
+
+
+def _remove_legacy_private_seeded_accounts(
+    connection: sqlite3.Connection,
+    configured_private_accounts: tuple[dict[str, object], ...],
+) -> None:
+    configured_ids = {str(seed["id"]) for seed in configured_private_accounts}
+    configured_usernames = {
+        _normalize_username(str(seed["username"])) for seed in configured_private_accounts
+    }
+
+    legacy_rows = connection.execute(
+        """
+        SELECT id, username
+        FROM auth_accounts
+        WHERE is_seeded = 1
+        """
+    ).fetchall()
+
+    for row in legacy_rows:
+        account_id = str(row["id"])
+        username = _normalize_username(str(row["username"]))
+        is_legacy_private_account = (
+            account_id in LEGACY_PRIVATE_SEEDED_ACCOUNT_IDS
+            or username in LEGACY_PRIVATE_SEEDED_USERNAMES
+        )
+        if not is_legacy_private_account:
+            continue
+        if account_id in configured_ids or username in configured_usernames:
+            continue
+
+        connection.execute(
+            """
+            DELETE FROM auth_accounts
+            WHERE id = ?
+            """,
+            (account_id,),
+        )
 
 
 def _upsert_seeded_account(

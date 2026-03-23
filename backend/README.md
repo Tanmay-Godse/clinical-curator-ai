@@ -53,6 +53,9 @@ TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
 TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
 TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 TRANSCRIPTION_TIMEOUT_SECONDS=60
+
+# Optional private team-only seeded accounts
+# PRIVATE_SEED_ACCOUNTS_JSON=[{"id":"account-developer-team","name":"Developer Team","username":"developer@example.com","password":"SET_IN_ENV_MANAGER","role":"admin","is_developer":true,"live_session_limit":null}]
 ```
 
 ## Deployment Note
@@ -76,14 +79,17 @@ to a persistent host than an ephemeral serverless setup.
 The backend seeds:
 
 - four public student demo accounts shown on `/login`
-- private internal admin accounts for the team
-- one private developer account for approvals
+- optional private internal admin accounts from `PRIVATE_SEED_ACCOUNTS_JSON`
+- optional private developer account for approvals from `PRIVATE_SEED_ACCOUNTS_JSON`
 
 Public student behavior:
 
 - shared public password is `CODESTORMERS`
 - each student account has `10` live sessions
 - admin and developer accounts can reset those limits
+
+The public repo no longer stores private admin or developer passwords in code.
+Configure those private accounts through deployment env instead.
 
 ## Routes
 
@@ -121,3 +127,5 @@ Focused runs used most often:
 ```
 
 For full app setup, see [../docs/local-setup.md](../docs/local-setup.md).
+
+For containerized host deployment, see [../docs/backend-deployment.md](../docs/backend-deployment.md).

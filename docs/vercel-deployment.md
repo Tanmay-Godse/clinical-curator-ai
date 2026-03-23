@@ -28,7 +28,7 @@ In Vercel:
 4. Add the frontend environment variable:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://your-backend.example.com/api/v1
+API_BASE_URL=https://your-backend.example.com/api/v1
 ```
 
 5. Deploy.
@@ -54,7 +54,13 @@ AI_LEARNING_MODEL=claude-haiku-4-5
 TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
 TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
 TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
+
+# Optional private team-only accounts
+# PRIVATE_SEED_ACCOUNTS_JSON=[{"id":"account-developer-team","name":"Developer Team","username":"developer@example.com","password":"SET_IN_ENV_MANAGER","role":"admin","is_developer":true,"live_session_limit":null}]
 ```
+
+The production frontend uses a Next.js proxy route, so `API_BASE_URL` stays
+server-side in Vercel and is not exposed in the public client bundle.
 
 ## Vercel Preview Caveat
 

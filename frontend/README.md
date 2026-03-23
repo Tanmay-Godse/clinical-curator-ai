@@ -26,6 +26,8 @@ npm run dev
 
 ## Environment
 
+Local development:
+
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
 ```
@@ -82,13 +84,18 @@ Required project setting:
 
 - root directory: `frontend`
 
-Required env:
+Required production env:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://your-backend.example.com/api/v1
+API_BASE_URL=https://your-backend.example.com/api/v1
 ```
 
-The backend must separately allow the Vercel frontend origin through `FRONTEND_ORIGIN`.
+The production app proxies browser calls through `/api/proxy/*`, so the backend
+URL stays server-side. `NEXT_PUBLIC_API_BASE_URL` is only needed for local
+development.
+
+The backend must separately allow the Vercel frontend origin through
+`FRONTEND_ORIGIN`.
 
 ## Useful Commands
 
@@ -109,7 +116,7 @@ those users to `/access-required`.
 
 Check both:
 
-- `NEXT_PUBLIC_API_BASE_URL`
+- Vercel `API_BASE_URL`
 - backend `FRONTEND_ORIGIN`
 
 ### A review page cannot find a session

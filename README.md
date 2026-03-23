@@ -101,6 +101,7 @@ pytest
 - [docs/how-to-run.md](docs/how-to-run.md)
 - [docs/local-setup.md](docs/local-setup.md)
 - [docs/vercel-deployment.md](docs/vercel-deployment.md)
+- [docs/backend-deployment.md](docs/backend-deployment.md)
 - [docs/api-reference.md](docs/api-reference.md)
 - [docs/team-setup.md](docs/team-setup.md)
 - [backend/README.md](backend/README.md)

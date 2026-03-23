@@ -233,16 +233,21 @@ function LoginPageContent() {
                   Signed in as <strong>{currentUser.username}</strong>.
                 </p>
                 {typeof currentUser.liveSessionRemaining === "number" ? (
-                  <p className="feedback-copy" style={{ marginTop: 12 }}>
-                    Live sessions remaining:{" "}
-                    <strong>
-                      {currentUser.liveSessionRemaining}
-                      {currentUser.liveSessionLimit
-                        ? ` / ${currentUser.liveSessionLimit}`
-                        : ""}
-                    </strong>
-                    .
-                  </p>
+                  <>
+                    <p className="feedback-copy" style={{ marginTop: 12 }}>
+                      Live sessions remaining:{" "}
+                      <strong>
+                        {currentUser.liveSessionRemaining}
+                        {typeof currentUser.liveSessionLimit === "number"
+                          ? ` / ${currentUser.liveSessionLimit}`
+                          : ""}
+                      </strong>
+                      .
+                    </p>
+                    <p className="feedback-copy" style={{ marginTop: 12 }}>
+                      Used so far: <strong>{currentUser.liveSessionUsed}</strong>.
+                    </p>
+                  </>
                 ) : null}
                 <p className="feedback-copy" style={{ marginTop: 12 }}>
                   You can continue with this account, or sign in with another user
@@ -346,15 +351,21 @@ function LoginPageContent() {
                     Username: <strong>{previewedAccount.username}</strong>
                   </p>
                   {typeof previewedAccount.liveSessionRemaining === "number" ? (
-                    <p className="panel-copy" style={{ marginTop: 12 }}>
-                      Live sessions remaining:{" "}
-                      <strong>
-                        {previewedAccount.liveSessionRemaining}
-                        {previewedAccount.liveSessionLimit
-                          ? ` / ${previewedAccount.liveSessionLimit}`
-                          : ""}
-                      </strong>
-                    </p>
+                    <>
+                      <p className="panel-copy" style={{ marginTop: 12 }}>
+                        Live sessions remaining:{" "}
+                        <strong>
+                          {previewedAccount.liveSessionRemaining}
+                          {typeof previewedAccount.liveSessionLimit === "number"
+                            ? ` / ${previewedAccount.liveSessionLimit}`
+                            : ""}
+                        </strong>
+                        .
+                      </p>
+                      <p className="panel-copy" style={{ marginTop: 12 }}>
+                        Used so far: <strong>{previewedAccount.liveSessionUsed}</strong>.
+                      </p>
+                    </>
                   ) : null}
                 </div>
 

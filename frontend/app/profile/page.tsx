@@ -240,6 +240,16 @@ export default function ProfilePage() {
         ? "Unlimited"
         : "Admin access"
       : `${user.liveSessionRemaining ?? 0} / ${user.liveSessionLimit}`;
+  const savedSessionCopy =
+    voiceSessions > 0
+      ? `${voiceSessions} ${voiceSessions === 1 ? "run" : "runs"} saved with voice coaching.`
+      : "Saved practice runs.";
+  const liveSessionUsageCopy =
+    user.liveSessionLimit === null
+      ? "Managed access account."
+      : user.liveSessionUsed > 0
+        ? `${user.liveSessionUsed} of ${user.liveSessionLimit} live ${user.liveSessionUsed === 1 ? "session" : "sessions"} used so far.`
+        : "No live sessions used yet. Quota changes when the camera starts.";
 
   return (
     <AppFrame
@@ -293,7 +303,7 @@ export default function ProfilePage() {
         <article className="dashboard-card dashboard-kpi-card">
           <span>Sessions</span>
           <strong>{sessions.length}</strong>
-          <p>Saved practice runs.</p>
+          <p>{savedSessionCopy}</p>
         </article>
         <article className="dashboard-card dashboard-kpi-card">
           <span>Reviews</span>
@@ -303,11 +313,7 @@ export default function ProfilePage() {
         <article className="dashboard-card dashboard-kpi-card">
           <span>Live Sessions Left</span>
           <strong>{liveSessionLabel}</strong>
-          <p>
-            {user.liveSessionLimit === null
-              ? "Managed access account."
-              : `${voiceSessions} voice-guided runs saved.`}
-          </p>
+          <p>{liveSessionUsageCopy}</p>
         </article>
       </section>
 

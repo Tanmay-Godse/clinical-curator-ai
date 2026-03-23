@@ -40,6 +40,13 @@ export TRANSCRIPTION_API_KEY='your_openai_key_here'
 
 Restart the backend after changing them.
 
+If you need private internal admin or developer accounts in a live environment,
+set them through:
+
+```env
+PRIVATE_SEED_ACCOUNTS_JSON=[{"id":"account-developer-team","name":"Developer Team","username":"developer@example.com","password":"SET_IN_ENV_MANAGER","role":"admin","is_developer":true,"live_session_limit":null}]
+```
+
 ## Recommended Deployment Shape
 
 Use:
@@ -59,13 +66,13 @@ In Vercel:
 
 1. Import the GitHub repo.
 2. Set the project root directory to `frontend`.
-3. Add `NEXT_PUBLIC_API_BASE_URL` pointing to the deployed backend API.
+3. Add `API_BASE_URL` pointing to the deployed backend API.
 4. Deploy.
 
 Example:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=https://your-backend.example.com/api/v1
+API_BASE_URL=https://your-backend.example.com/api/v1
 ```
 
 ## Backend Deployment Checklist
@@ -106,6 +113,6 @@ Useful checks:
 
 ```bash
 git check-ignore -v backend/.env backend/app/data/auth.db
-rg -uuu -n "sk-|api_key|AI_API_KEY|TRANSCRIPTION_API_KEY" .
+rg -uuu -n "sk-|api_key|AI_API_KEY|TRANSCRIPTION_API_KEY|PRIVATE_SEED_ACCOUNTS_JSON" .
 git status --short
 ```
