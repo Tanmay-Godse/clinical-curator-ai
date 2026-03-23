@@ -1,22 +1,31 @@
 # Local Setup Guide
 
-This guide is the fuller developer-oriented setup for the current demo build.
+This is the fuller developer-oriented setup and behavior reference for the
+current demo build.
 
-## Current Architecture
+## Use This Guide When
 
-- `frontend`: Next.js app with dashboard, trainer, knowledge, library, profile, review, admin, and developer flows
+- you are developing features locally
+- you need the canonical local environment setup
+- you are debugging auth, quotas, review state, or persistence behavior
+- you want the architecture and troubleshooting notes in one place
+
+## Architecture At A Glance
+
+- `frontend`: Next.js app with dashboard, trainer, review, knowledge, library, profile, admin, and developer flows
 - `backend`: FastAPI app with auth, AI routing, safety gate, review queue, and TTS
-- `main AI model`: `claude-sonnet-4-6`
-- `learning model`: `claude-haiku-4-5`
-- `transcription`: `gpt-4o-mini-transcribe`
+- `main AI model`: Anthropic-backed analysis, coaching, debriefs, and knowledge generation
+- `transcription`: OpenAI `gpt-4o-mini-transcribe`
 - `auth persistence`: SQLite at `backend/app/data/auth.db`
+- `review queue persistence`: `backend/app/data/review_cases.json`
 - `session persistence`: browser `localStorage`
+- `recommended hosted shape`: frontend on Vercel, backend on a separate persistent Python host
 
-## Service URLs
+## Local URLs
 
 - frontend: `http://localhost:3000`
 - backend: `http://localhost:8001`
-- frontend API target: `http://localhost:8001/api/v1`
+- backend API base: `http://localhost:8001/api/v1`
 
 ## Backend Setup
 
@@ -28,35 +37,15 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-Recommended `backend/.env`:
+The recommended defaults already live in `backend/.env.example`. After copying
+it, make sure these values are correct for your machine:
 
-```env
-FRONTEND_ORIGIN=http://localhost:3000
-SIMULATION_ONLY=true
-
-AI_PROVIDER=anthropic
-AI_API_BASE_URL=https://api.anthropic.com/v1/messages
-AI_API_KEY=SET_IN_ENV_MANAGER
-AI_ANALYSIS_MODEL=claude-sonnet-4-6
-AI_DEBRIEF_MODEL=claude-sonnet-4-6
-AI_COACH_MODEL=claude-sonnet-4-6
-AI_LEARNING_MODEL=claude-haiku-4-5
-
-AI_TIMEOUT_SECONDS=60
-AI_ANALYSIS_MAX_TOKENS=1400
-AI_DEBRIEF_MAX_TOKENS=1200
-AI_COACH_MAX_TOKENS=450
-AI_SAFETY_MAX_TOKENS=600
-AI_LEARNING_MAX_TOKENS=1800
-HUMAN_REVIEW_CONFIDENCE_THRESHOLD=0.78
-GRADING_CONFIDENCE_THRESHOLD=0.80
-ANTHROPIC_VERSION=2023-06-01
-
-TRANSCRIPTION_API_BASE_URL=https://api.openai.com/v1
-TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
-TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
-TRANSCRIPTION_TIMEOUT_SECONDS=60
-```
+- `FRONTEND_ORIGIN=http://localhost:3000`
+- `AI_PROVIDER=anthropic`
+- `AI_API_BASE_URL=https://api.anthropic.com/v1/messages`
+- `AI_API_KEY`: real Anthropic key
+- `TRANSCRIPTION_API_KEY`: real OpenAI key
+- `PRIVATE_SEED_ACCOUNTS_JSON`: optional team-only private admin or developer accounts
 
 Run it:
 
@@ -72,7 +61,7 @@ npm install
 cp .env.local.example .env.local
 ```
 
-Frontend env:
+Set:
 
 ```env
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
@@ -103,19 +92,20 @@ Public demo rules:
 - only admin or developer accounts can reset the limit
 - unknown usernames are redirected to `/access-required`
 
-Private internal admin and developer accounts are also seeded in the backend for
-team operations, but they are intentionally not shown on the public login page
-and should not be copied into public-facing docs or judge instructions.
+Private internal admin and developer accounts can be seeded through
+`PRIVATE_SEED_ACCOUNTS_JSON`, but those credentials should never be copied into
+public docs or screenshots.
 
 ## Persistence Model
 
 Two storage layers exist:
 
-- backend SQLite:
+- backend runtime data:
   - auth accounts
   - admin approval state
   - live-session quotas
   - session tokens
+  - review queue state
 - browser `localStorage`:
   - live session history
   - cached debriefs
@@ -126,8 +116,9 @@ Two storage layers exist:
 That means:
 
 - changing browsers does not carry over student session history
-- changing or deleting `auth.db` resets seeded-account quota state
-- restarting the backend reapplies the latest seeded-account definitions from code
+- deleting `backend/app/data/auth.db` resets seeded-account quota state
+- deleting `backend/app/data/review_cases.json` clears persisted review queue state
+- restarting the backend reapplies the latest seeded-account definitions from code and environment
 
 ## Main Routes
 
@@ -148,10 +139,11 @@ Current demo constraints:
 
 - one core procedure: `simple-interrupted-suture`
 - each camera run is limited to `2 minutes`
-- proactive live analysis runs every `1 second`
+- setup analysis can auto-run after the camera starts
+- live analysis continues during the active run
 - setup accepts clearly visible simulated surfaces such as an orange, banana, or foam pad
 
-Fixed defaults:
+Fixed defaults in the demo build:
 
 - `Simulation-only confirmation`: on
 - `Audio coaching`: on
@@ -164,13 +156,6 @@ Still configurable:
 - `Practice surface`
 - `Learner focus`
 - `Low-bandwidth capture`
-
-## Review And Admin Flow
-
-- low-confidence or blocked attempts can create review cases
-- `/admin/reviews` is for resolved and pending human-review tickets
-- developer-only approvals live at `/developer/approvals`
-- admin and developer accounts can reset demo account live-session limits
 
 ## Verification
 
@@ -194,14 +179,21 @@ curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 
 ## Troubleshooting
 
-- If the login page still shows old seeded-account behavior after code changes, restart the backend.
-- If the frontend is deployed on a different origin, update `FRONTEND_ORIGIN` in the backend and restart it.
-- If live voice replies are missing, verify both browser microphone permission and `TRANSCRIPTION_API_KEY`.
-- If learner history seems missing, confirm you are in the same browser profile that created the session.
+- Login page still shows old seeded-account behavior:
+  restart the backend so the seeded-account sync runs again.
+- Live preview fails immediately with an Anthropic credential error:
+  `AI_API_KEY` is missing, placeholder-only, revoked, or wrong.
+- Frontend is deployed on a different origin:
+  update `FRONTEND_ORIGIN` in the backend and restart it.
+- Learner voice is not transcribed:
+  verify both browser microphone permission and `TRANSCRIPTION_API_KEY`.
+- Review page cannot find a session:
+  session history is browser-local, so use the same browser profile that created it.
 
 ## Related Docs
 
-- [docs/how-to-run.md](how-to-run.md)
-- [docs/vercel-deployment.md](vercel-deployment.md)
-- [docs/api-reference.md](api-reference.md)
-- [docs/team-setup.md](team-setup.md)
+- [how-to-run.md](how-to-run.md)
+- [team-setup.md](team-setup.md)
+- [vercel-deployment.md](vercel-deployment.md)
+- [backend-deployment.md](backend-deployment.md)
+- [api-reference.md](api-reference.md)

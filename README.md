@@ -1,85 +1,68 @@
 # Clinical Curator AI
 
-Clinical Curator AI is a simulation-only clinical skills trainer built around a
+Clinical Curator AI is a simulation-only clinical skills trainer centered on a
 live suturing demo. Learners practice on safe surfaces such as an orange,
-banana, or foam pad while the system handles camera-based feedback, voice
+banana, or foam pad while the system handles camera-based feedback, live voice
 coaching, debriefs, review tickets, and short knowledge rounds.
 
-## Current Demo Shape
+## Start Here
 
-- `/dashboard`: main starting point
+- [docs/README.md](docs/README.md): documentation hub and reading order
+- [docs/how-to-run.md](docs/how-to-run.md): fastest local run path
+- [docs/local-setup.md](docs/local-setup.md): fuller developer setup and architecture
+- [docs/vercel-deployment.md](docs/vercel-deployment.md): frontend deployment on Vercel
+- [docs/backend-deployment.md](docs/backend-deployment.md): persistent backend deployment
+- [docs/api-reference.md](docs/api-reference.md): backend API reference
+
+## Current Demo Surface
+
+- `/login`: fixed-account sign-in for the public demo
+- `/dashboard`: primary landing page after sign-in
 - `/train/simple-interrupted-suture`: live trainer
 - `/review/[sessionId]`: debrief and replay
 - `/knowledge`: rapidfire, quiz, and flashcards
 - `/library`: procedure guide and practice references
+- `/profile`: account and quota view
 - `/admin/reviews`: human review queue
-- `/developer/approvals`: developer-only approval queue
+- `/developer/approvals`: developer-only approval flow
 
-## Stack
+## Architecture
 
-- `frontend`: Next.js 16
-- `backend`: FastAPI
-- `analysis / coach / debrief`: `claude-sonnet-4-6`
-- `knowledge packs`: `claude-haiku-4-5`
-- `speech-to-text`: `gpt-4o-mini-transcribe`
-- `speech output`: browser speech synthesis first, backend TTS fallback
-- `auth persistence`: SQLite in the backend
-- `session history`: browser `localStorage`
+- `frontend`: Next.js 16 app in [`frontend/`](frontend/)
+- `backend`: FastAPI app in [`backend/`](backend/)
+- `analysis / coach / debrief`: Anthropic-backed requests
+- `speech-to-text`: OpenAI `gpt-4o-mini-transcribe`
+- `speech output`: browser speech first, backend TTS fallback
+- `auth and quota persistence`: SQLite in the backend
+- `session history and cached learning state`: browser `localStorage`
+- `deployment shape`: frontend on Vercel, backend on a separate persistent Python host
 
 ## Public Demo Accounts
 
 The public login flow is fixed-account-only so the deployed demo does not allow
-unlimited self-service usage.
-
-Judge accounts shown on the login page:
+open self-service account creation.
 
 - `Student_1@gmail.com`
 - `Student_2@gmail.com`
 - `Student_3@gmail.com`
 - `Student_4@gmail.com`
-- password for all four: `CODESTORMERS`
+- shared password: `CODESTORMERS`
 
-Rules:
+Public demo rules:
 
 - each public student account has `10` live sessions
-- the live-session limit is consumed when a camera run starts
-- learners cannot reset that limit themselves
+- the live-session allowance is consumed when a camera run starts
+- learners cannot reset their own quota
 - only admin or developer accounts can reset demo account limits
-- unknown usernames route to `/access-required` with a contact-the-developers message
-
-Private team admin and developer accounts are seeded in the backend for internal
-operations, but they are intentionally not listed on the public login page or in
-public docs.
-
-## Deployment Shape
-
-This repo is set up to deploy the `frontend` on `Vercel` and keep the FastAPI
-backend on a separate persistent Python host.
-
-Why:
-
-- the frontend is a normal Next.js app and works well on Vercel
-- the backend owns SQLite auth data, review queue state, and longer AI calls
-- the backend CORS setting currently expects one explicit frontend origin
-
-Read the deployment guide here:
-
-- [docs/vercel-deployment.md](docs/vercel-deployment.md)
-
-## Local Run
-
-Start with:
-
-- [docs/how-to-run.md](docs/how-to-run.md) for the fastest local setup
-- [docs/local-setup.md](docs/local-setup.md) for the fuller development guide
+- unknown usernames are routed to `/access-required`
 
 ## Repository Layout
 
 ```text
 .
-|-- backend/       FastAPI API, AI transport, scoring, review queue, auth, and tests
-|-- docs/          setup, API, and deployment docs
-|-- frontend/      Next.js dashboard, trainer, knowledge, library, profile, and review UI
+|-- backend/       FastAPI API, AI transport, scoring, auth, review queue, tests
+|-- docs/          setup, deployment, API, and team-process documentation
+|-- frontend/      Next.js UI, trainer, dashboard, review, profile, and library
 `-- open-library/  procedure rubric and benchmark reference assets
 ```
 
@@ -96,13 +79,7 @@ source .venv/bin/activate
 pytest
 ```
 
-## Documentation
+## Package Docs
 
-- [docs/how-to-run.md](docs/how-to-run.md)
-- [docs/local-setup.md](docs/local-setup.md)
-- [docs/vercel-deployment.md](docs/vercel-deployment.md)
-- [docs/backend-deployment.md](docs/backend-deployment.md)
-- [docs/api-reference.md](docs/api-reference.md)
-- [docs/team-setup.md](docs/team-setup.md)
 - [backend/README.md](backend/README.md)
 - [frontend/README.md](frontend/README.md)

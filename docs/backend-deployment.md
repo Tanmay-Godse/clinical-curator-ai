@@ -2,19 +2,25 @@
 
 This backend is intended for a persistent Python host, not Vercel serverless.
 
-## Recommended Shape
+## Recommended Host Shape
 
-- deploy the container built from `backend/Dockerfile`
+- build from `backend/Dockerfile` or run the app directly with Uvicorn
 - mount persistent storage at `/app/app/data`
 - inject secrets through the host environment manager
-- point the frontend Vercel app at the backend through `API_BASE_URL`
+- point the Vercel frontend at the backend through `API_BASE_URL`
 
-## Required Backend Secrets
+Why persistence matters:
 
-Minimum runtime environment:
+- auth accounts and live-session quotas are stored in SQLite
+- review queue state is stored on disk
+- ephemeral storage can reset demo quota and review state
+
+## Required Runtime Configuration
+
+Minimum backend environment:
 
 ```env
-FRONTEND_ORIGIN=https://clinical-curator-ai.vercel.app
+FRONTEND_ORIGIN=https://your-project.vercel.app
 SIMULATION_ONLY=true
 
 AI_PROVIDER=anthropic
@@ -33,22 +39,11 @@ TRANSCRIPTION_MODEL=gpt-4o-mini-transcribe
 Optional private team-only seeded accounts:
 
 ```env
-PRIVATE_SEED_ACCOUNTS_JSON=[
-  {
-    "id": "account-developer-team",
-    "name": "Developer Team",
-    "username": "developer@example.com",
-    "password": "SET_IN_HOST_SECRET_MANAGER",
-    "role": "admin",
-    "is_developer": true,
-    "live_session_limit": null
-  }
-]
+PRIVATE_SEED_ACCOUNTS_JSON=[{"id":"account-developer-team","name":"Developer Team","username":"developer@example.com","password":"SET_IN_HOST_SECRET_MANAGER","role":"admin","is_developer":true,"live_session_limit":null}]
 ```
 
-The four public judge demo accounts remain seeded from code. Private team admin
-and developer accounts should now come from `PRIVATE_SEED_ACCOUNTS_JSON`, not
-from source control.
+Keep placeholder values in tracked files and inject real values through the host
+dashboard or shell at runtime.
 
 ## Docker Commands
 
@@ -69,9 +64,6 @@ docker run \
   clinical-curator-backend
 ```
 
-For real deployments, keep placeholder values in `backend/.env` and inject the
-real secrets in your host dashboard instead of editing tracked files.
-
 ## Frontend Wiring
 
 In the Vercel project for `frontend`, set:
@@ -81,4 +73,35 @@ API_BASE_URL=https://your-backend.example.com/api/v1
 ```
 
 The production frontend proxies browser requests through `/api/proxy/*`, so the
-backend URL stays server-side and out of the public client bundle.
+backend URL stays server-side.
+
+## Smoke Checks
+
+After deployment:
+
+```bash
+curl https://your-backend.example.com/api/v1/health
+curl https://your-backend.example.com/api/v1/procedures/simple-interrupted-suture
+```
+
+Manual checks:
+
+1. Sign in from the deployed frontend.
+2. Start a live session.
+3. Confirm the backend writes quota state under the persistent data mount.
+4. Confirm review cases still exist after a backend restart.
+
+## Common Failure Modes
+
+- `invalid x-api-key` or another Anthropic credential error:
+  `AI_API_KEY` is missing, placeholder-only, revoked, or wrong.
+- Quota appears to reset after restart:
+  the backend data directory is not on persistent storage.
+- Frontend loads but API calls fail:
+  `FRONTEND_ORIGIN` does not match the exact deployed frontend origin.
+
+## Related Docs
+
+- [vercel-deployment.md](vercel-deployment.md)
+- [team-setup.md](team-setup.md)
+- [local-setup.md](local-setup.md)

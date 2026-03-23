@@ -2,36 +2,38 @@
 
 This guide is for collaborators working on a public repo while the demo is live.
 
-## What Is Public vs Private
+## Public vs Private
 
-Publicly documented:
+Safe to document publicly:
 
 - the four judge student accounts shown on `/login`
 - the shared student password `CODESTORMERS`
-- the fact that each student account has `10` live sessions
+- the fact that each public student account has `10` live sessions
+- the public routes and demo flow
 
-Private team-only items:
+Keep private:
 
 - seeded internal admin accounts
 - the seeded developer account
 - real Anthropic and OpenAI keys
 - any backend database copied from a live environment
+- any private `PRIVATE_SEED_ACCOUNTS_JSON` payload
 
-Do not publish private account credentials in docs, screenshots, or issue
-comments.
+Do not publish private account credentials in docs, screenshots, issue
+comments, or commits.
 
-## Open Repo Secret Handling
+## Secret Handling
 
 Never commit real keys into tracked files.
 
-Keep placeholders in `backend/.env`:
+Tracked config should keep placeholders such as:
 
 ```env
 AI_API_KEY=SET_IN_ENV_MANAGER
 TRANSCRIPTION_API_KEY=SET_IN_ENV_MANAGER
 ```
 
-Use your shell or environment manager for the real values:
+Use your shell, host secret manager, or environment manager for real values:
 
 ```bash
 export AI_API_KEY='your_claude_key_here'
@@ -47,72 +49,42 @@ set them through:
 PRIVATE_SEED_ACCOUNTS_JSON=[{"id":"account-developer-team","name":"Developer Team","username":"developer@example.com","password":"SET_IN_ENV_MANAGER","role":"admin","is_developer":true,"live_session_limit":null}]
 ```
 
-## Recommended Deployment Shape
-
-Use:
-
-- `Vercel` for the `frontend`
-- one separate persistent Python host for the `backend`
-
-Reasons:
-
-- the frontend is a normal Next.js project
-- the backend needs persistent SQLite storage for auth quotas and review state
-- the backend currently accepts one `FRONTEND_ORIGIN` value for CORS
-
-## Frontend On Vercel
-
-In Vercel:
-
-1. Import the GitHub repo.
-2. Set the project root directory to `frontend`.
-3. Add `API_BASE_URL` pointing to the deployed backend API.
-4. Deploy.
-
-Example:
-
-```env
-API_BASE_URL=https://your-backend.example.com/api/v1
-```
-
-## Backend Deployment Checklist
-
-The backend host needs:
-
-- Python 3.10+
-- persistent filesystem or volume for `backend/app/data/auth.db`
-- real `AI_API_KEY`
-- real `TRANSCRIPTION_API_KEY`
-- `FRONTEND_ORIGIN` set to the exact deployed frontend origin
-
-Example:
-
-```env
-FRONTEND_ORIGIN=https://your-project.vercel.app
-```
-
-## Preview Deployment Caveat
-
-The backend CORS configuration currently allows one exact frontend origin.
-
-That means:
-
-- a single stable Vercel production URL is the safest demo setup
-- Vercel preview URLs will not work automatically unless you widen backend CORS behavior in code
-
-## Git Push Checklist
+## Repo Hygiene
 
 Before pushing:
 
-- `backend/.env` has placeholders only
-- `backend/app/data/auth.db` is not tracked
-- no private account credential is added to docs
-- `git status --short` is clean or intentionally staged
+- keep `backend/.env` and `frontend/.env.local` out of Git
+- keep `backend/app/data/auth.db` and `backend/app/data/review_cases.json` out of Git
+- do not paste private credentials into docs or source files
+- review `git status --short` before committing
 
 Useful checks:
 
 ```bash
-git check-ignore -v backend/.env backend/app/data/auth.db
+git check-ignore -v backend/.env frontend/.env.local backend/app/data/auth.db backend/app/data/review_cases.json
 rg -uuu -n "sk-|api_key|AI_API_KEY|TRANSCRIPTION_API_KEY|PRIVATE_SEED_ACCOUNTS_JSON" .
 git status --short
 ```
+
+## Team Workflow
+
+- pull and rebase before large edits on `main`
+- treat `docs/local-setup.md` as the canonical local-development guide
+- treat `docs/vercel-deployment.md` and `docs/backend-deployment.md` as deployment ownership docs
+- prefer updating one canonical doc and linking to it, rather than duplicating the same instructions across several files
+
+## Release Smoke Checklist
+
+1. Open `/login`.
+2. Sign in with one judge account.
+3. Confirm `/dashboard`, `/knowledge`, and `/library` load.
+4. Start a live session and confirm the backend receives analysis calls.
+5. Confirm live-session quota updates after the camera run starts.
+6. Open the generated review.
+7. If using admin or developer accounts, confirm review queue and approval pages still load.
+
+## Deployment Pointers
+
+- Frontend on Vercel: [vercel-deployment.md](vercel-deployment.md)
+- Backend on a persistent host: [backend-deployment.md](backend-deployment.md)
+- Full local development guide: [local-setup.md](local-setup.md)
