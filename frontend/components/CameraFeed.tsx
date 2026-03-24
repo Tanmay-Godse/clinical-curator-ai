@@ -62,6 +62,7 @@ type CameraFeedProps = {
   frozenFrameUrl: string | null;
   lowBandwidthMode?: boolean;
   cheapPhoneMode?: boolean;
+  onStartRequest?: () => Promise<void> | void;
   primeMicrophoneOnStart?: boolean;
   onMicrophoneIssue?: (message: string | null) => void;
   onReadyChange?: (ready: boolean) => void;
@@ -202,6 +203,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
       frozenFrameUrl,
       lowBandwidthMode = false,
       cheapPhoneMode = false,
+      onStartRequest,
       primeMicrophoneOnStart = false,
       onMicrophoneIssue,
       onReadyChange,
@@ -398,6 +400,15 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
       teardownStream,
     ]);
 
+    const handleStartRequest = useCallback(async () => {
+      if (onStartRequest) {
+        await onStartRequest();
+        return;
+      }
+
+      await startCamera();
+    }, [onStartRequest, startCamera]);
+
     const captureFrame = useCallback(async (
       options?: {
         mode?: CaptureFrameMode;
@@ -535,7 +546,7 @@ export const CameraFeed = forwardRef<CameraFeedHandle, CameraFeedProps>(
               </p>
               <button
                 className="button-primary"
-                onClick={() => void startCamera()}
+                onClick={() => void handleStartRequest()}
                 type="button"
               >
                 {actionLabel}

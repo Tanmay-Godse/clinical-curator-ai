@@ -1759,6 +1759,7 @@ export default function TrainProcedurePage() {
                   lowBandwidthMode={equityMode.lowBandwidthMode}
                   onMicrophoneIssue={setCoachError}
                   onReadyChange={handleCameraReadyChange}
+                  onStartRequest={handleCameraToggle}
                   onStatusChange={handleCameraStatusChange}
                   primeMicrophoneOnStart={equityMode.audioCoaching}
                 />

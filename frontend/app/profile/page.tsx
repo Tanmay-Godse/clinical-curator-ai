@@ -233,7 +233,15 @@ export default function ProfilePage() {
   }
 
   const reviewCount = sessions.filter((session) => session.debrief).length;
-  const voiceSessions = sessions.filter((session) => session.equityMode.audioCoaching).length;
+  const completedSessions = sessions.filter(
+    (session) =>
+      session.events.length > 0 ||
+      session.offlinePracticeLogs.length > 0 ||
+      Boolean(session.debrief),
+  );
+  const voiceSessions = completedSessions.filter(
+    (session) => session.equityMode.audioCoaching,
+  ).length;
   const liveSessionLabel =
     user.liveSessionLimit === null
       ? user.isDeveloper
@@ -243,7 +251,9 @@ export default function ProfilePage() {
   const savedSessionCopy =
     voiceSessions > 0
       ? `${voiceSessions} ${voiceSessions === 1 ? "run" : "runs"} saved with voice coaching.`
-      : "Saved practice runs.";
+      : completedSessions.length > 0
+        ? "Saved practice runs."
+        : "No completed practice runs yet.";
   const liveSessionUsageCopy =
     user.liveSessionLimit === null
       ? "Managed access account."
@@ -301,8 +311,8 @@ export default function ProfilePage() {
 
       <section className="dashboard-kpi-grid">
         <article className="dashboard-card dashboard-kpi-card">
-          <span>Sessions</span>
-          <strong>{sessions.length}</strong>
+          <span>Saved Runs</span>
+          <strong>{completedSessions.length}</strong>
           <p>{savedSessionCopy}</p>
         </article>
         <article className="dashboard-card dashboard-kpi-card">
