@@ -53,7 +53,7 @@ Browser
 
 ### Main runtime loop
 
-1. A learner signs in through seeded demo accounts.
+1. A learner signs in or creates an account.
 2. The trainer loads the suturing procedure and restores the active session.
 3. Starting the camera consumes one live-session allowance.
 4. `analyze-frame` runs a safety gate first, then stage analysis, scoring, and optional human-review escalation.
@@ -64,7 +64,7 @@ Browser
 
 ## What The Repo Is Optimized For
 
-- Safe demo access over open public signup
+- Safe demo access through self-service signup plus seeded demo accounts for judging
 - One polished end-to-end procedure rather than a broad procedure catalog
 - Simulation-only enforcement before image-guided coaching
 - Offline-friendly practice logging and browser-first recovery
@@ -115,7 +115,7 @@ All routes mount under `/api/v1`.
 | --- | --- | --- |
 | [../backend/app/api/routes/health.py](../backend/app/api/routes/health.py) | `GET /health` | Reachability and simulation-only status |
 | [../backend/app/api/routes/procedures.py](../backend/app/api/routes/procedures.py) | `GET /procedures/{procedure_id}` | Procedure metadata delivery |
-| [../backend/app/api/routes/auth.py](../backend/app/api/routes/auth.py) | Preview, sign-in, admin approvals, quota reset, live-session consume | Seeded account auth and role workflow |
+| [../backend/app/api/routes/auth.py](../backend/app/api/routes/auth.py) | Preview, create account, sign-in, admin approvals, quota reset, live-session consume | Self-service and seeded account auth workflow |
 | [../backend/app/api/routes/analyze.py](../backend/app/api/routes/analyze.py) | `POST /analyze-frame` | Stage analysis entrypoint |
 | [../backend/app/api/routes/coach.py](../backend/app/api/routes/coach.py) | `POST /coach-chat` | Voice/text coaching entrypoint |
 | [../backend/app/api/routes/debrief.py](../backend/app/api/routes/debrief.py) | `POST /debrief` | Session review synthesis |
@@ -155,7 +155,7 @@ All routes mount under `/api/v1`.
 | [../backend/app/services/debrief_service.py](../backend/app/services/debrief_service.py) | Generates session recap, strengths, improvement areas, drill, equity plan, quiz |
 | [../backend/app/services/knowledge_service.py](../backend/app/services/knowledge_service.py) | Builds Knowledge Lab packs, plus substantial local fallback content |
 | [../backend/app/services/review_queue_service.py](../backend/app/services/review_queue_service.py) | Persists human review queue to JSON and resolves reviewer outcomes |
-| [../backend/app/services/auth_service.py](../backend/app/services/auth_service.py) | Seeded demo auth, password hashing, session tokens, admin approval workflow, quota management |
+| [../backend/app/services/auth_service.py](../backend/app/services/auth_service.py) | Self-service and seeded auth, password hashing, session tokens, admin approval workflow, quota management |
 | [../backend/app/services/learning_state_service.py](../backend/app/services/learning_state_service.py) | SQLite sync for saved sessions, active-session pointers, and knowledge progress |
 
 ### Important backend behaviors
@@ -180,10 +180,11 @@ All routes mount under `/api/v1`.
 - If transcription fails for a spoken turn, the service returns a blocked coaching response rather than crashing the loop.
 - The coach prompt is optimized for short spoken turns, avoiding repetitive lectures.
 
-#### 3. Seeded-account auth model
+#### 3. Auth model
 
 - Public demo accounts are hardcoded in `auth_service.PUBLIC_DEMO_ACCOUNTS`.
-- Self-service account creation is intentionally disabled.
+- Self-service student account creation is enabled.
+- Admin reviewer requests are created as student accounts first with pending developer approval.
 - Optional private admin/developer accounts come from `PRIVATE_SEED_ACCOUNTS_JSON`.
 - Passwords are stored with PBKDF2-SHA256 and per-account salts.
 - Session tokens are stored in SQLite and issued on sign-in.
@@ -238,8 +239,8 @@ All routes mount under `/api/v1`.
 | Route | File | Responsibility |
 | --- | --- | --- |
 | `/` | [../frontend/app/page.tsx](../frontend/app/page.tsx) | Redirect to dashboard |
-| `/login` | [../frontend/app/login/page.tsx](../frontend/app/login/page.tsx) | Demo-account identification, preview, sign-in, role routing |
-| `/access-required` | [../frontend/app/access-required/page.tsx](../frontend/app/access-required/page.tsx) | Handles unknown usernames when signup is disabled |
+| `/login` | [../frontend/app/login/page.tsx](../frontend/app/login/page.tsx) | Sign-in and create-account flow with role-aware routing |
+| `/access-required` | [../frontend/app/access-required/page.tsx](../frontend/app/access-required/page.tsx) | Legacy fallback route kept for older links |
 | `/dashboard` | [../frontend/app/dashboard/page.tsx](../frontend/app/dashboard/page.tsx) | Gamified learner summary, missions, achievements, recent session links |
 | `/train/[procedure]` | [../frontend/app/train/[procedure]/page.tsx](../frontend/app/train/[procedure]/page.tsx) | Live trainer, camera loop, analysis loop, voice coach loop, session persistence |
 | `/review/[sessionId]` | [../frontend/app/review/[sessionId]/page.tsx](../frontend/app/review/[sessionId]/page.tsx) | Session recap, debrief hydration/cache, review-case visibility |
@@ -441,7 +442,7 @@ This repo is not a generic full-stack starter. It is a tightly scoped, demo-safe
 
 - one main procedure
 - a deliberate safety gate before image coaching
-- seeded-account access control
+- mixed self-service plus seeded-account access control
 - browser-plus-backend dual persistence
 - a human-review loop
 - a clear expansion path for more procedures and richer study content
