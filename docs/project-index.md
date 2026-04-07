@@ -2,7 +2,7 @@
 
 Last indexed: 2026-03-31
 
-This document is a code-oriented map of the Clinical Curator AI hackathon repo.
+This document is a code-oriented map of the Clinical Curator AI repository.
 It is meant to answer two questions quickly:
 
 1. What exists in this repository?
