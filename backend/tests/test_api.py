@@ -188,6 +188,42 @@ def test_self_service_student_account_can_be_created_and_signed_in(
     assert signed_in["session_token"]
 
 
+def test_self_service_account_creation_rejects_duplicate_username_variants(
+    tmp_path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(auth_service, "AUTH_DB_PATH", tmp_path / "auth.db")
+
+    first_create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Student Prime",
+            "username": "Student.Prime",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+
+    assert first_create_response.status_code == 201
+    assert first_create_response.json()["username"] == "student.prime"
+
+    duplicate_create_response = client.post(
+        "/api/v1/auth/accounts",
+        json={
+            "name": "Student Prime Two",
+            "username": "  student.prime  ",
+            "password": "supersecure",
+            "role": "student",
+        },
+    )
+
+    assert duplicate_create_response.status_code == 409
+    assert (
+        duplicate_create_response.json()["detail"]
+        == "That username is already registered. Sign in instead."
+    )
+
+
 def test_self_service_admin_request_starts_pending_and_student_scoped(
     tmp_path,
     monkeypatch,

@@ -567,7 +567,7 @@ export default function TrainProcedurePage() {
       return `${formatDurationClock(demoTimeRemainingMs)} remaining`;
     }
 
-    return "2-minute demo limit";
+    return "2-minute limit";
   }, [cameraReady, demoSessionExpired, demoTimeRemainingMs]);
   const demoTimerTone = demoSessionExpired
     ? "status-unsafe"
@@ -1679,9 +1679,6 @@ export default function TrainProcedurePage() {
             <span className="pill">{captureProfileLabel}</span>
             <span className={`pill ${demoTimerTone}`}>{demoTimerLabel}</span>
             {liveSessionQuotaLabel ? <span className="pill">{liveSessionQuotaLabel}</span> : null}
-            <span className="pill">
-              {simulationConfirmed ? "simulation confirmed" : "simulation only"}
-            </span>
           </div>
           <p className="trainer-session-note">
             {liveSessionAccessError ??
