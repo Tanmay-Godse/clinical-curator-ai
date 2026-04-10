@@ -64,6 +64,7 @@ import type {
   CoachChatResponse,
   EquityModeSettings,
   HealthStatus,
+  Issue,
   OfflinePracticeLog,
   ProcedureDefinition,
   SessionEvent,
@@ -74,6 +75,7 @@ import type {
 
 const AUTO_COACH_INTERVAL_MS = 1_000;
 const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
+const SETUP_LOCAL_CHECK_TIMEOUT_MS = 5_000;
 const COACH_CONVERSATION_WINDOW = 4;
 const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
 const VOICE_RECORDING_MIN_SPEECH_MS = 220;
@@ -211,6 +213,29 @@ function formatCheckedAtLabel(checkedAt: string | null): string | null {
     hour: "numeric",
     minute: "2-digit",
   })}`;
+}
+
+async function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string,
+): Promise<T> {
+  let timeoutId: number | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error(message));
+        }, timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timeoutId !== null) {
+      window.clearTimeout(timeoutId);
+    }
+  }
 }
 
 function hasMicDiagnosticTranscript(result: MicDiagnosticResult | null): boolean {
@@ -365,9 +390,17 @@ function getCameraStatusTone(state: CameraFeedState): string {
   }
 }
 
-function getVoiceStatusHeadline(status: VoiceSessionStatus, cameraReady: boolean): string {
+function getVoiceStatusHeadline(
+  status: VoiceSessionStatus,
+  cameraReady: boolean,
+  isLiveSessionActive: boolean,
+): string {
   if (!cameraReady) {
     return "Camera offline";
+  }
+
+  if (!isLiveSessionActive) {
+    return "Local preview";
   }
 
   switch (status) {
@@ -393,6 +426,7 @@ function getLiveStatusChip(options: {
   audioCoachingEnabled: boolean;
   cameraReady: boolean;
   demoSessionExpired: boolean;
+  isLiveSessionActive: boolean;
   isSessionPaused: boolean;
   isSetupStage: boolean;
   voiceSessionStatus: VoiceSessionStatus;
@@ -407,6 +441,10 @@ function getLiveStatusChip(options: {
 
   if (!options.cameraReady || options.isSetupStage) {
     return { label: "Setup", tone: "status-retry" };
+  }
+
+  if (!options.isLiveSessionActive) {
+    return { label: "Preview", tone: "status-retry" };
   }
 
   if (!options.audioCoachingEnabled) {
@@ -577,6 +615,7 @@ export default function TrainProcedurePage() {
     DEMO_CAMERA_SESSION_LIMIT_MS,
   );
   const [isSessionPaused, setIsSessionPaused] = useState(false);
+  const [isLiveSessionActive, setIsLiveSessionActive] = useState(false);
   const activeVoiceCaptureRef = useRef<VoiceCaptureController | null>(null);
   const browserMicDiagnosticControllerRef =
     useRef<BrowserSpeechRecognitionController | null>(null);
@@ -588,6 +627,7 @@ export default function TrainProcedurePage() {
   const voiceLoopGenerationRef = useRef(0);
   const demoDeadlineRef = useRef<number | null>(null);
   const demoSessionExpiredRef = useRef(false);
+  const liveSessionActiveRef = useRef(false);
   const pausedDemoTimeRemainingRef = useRef<number | null>(null);
   const resumePausedSessionRef = useRef(false);
   const cameraStopModeRef = useRef<"idle" | "pause" | "end">("idle");
@@ -606,6 +646,11 @@ export default function TrainProcedurePage() {
     Boolean(navigator.mediaDevices?.getUserMedia);
   const browserSpeechRecognitionAvailable = canUseBrowserSpeechRecognition();
   const browserVoiceRecordingAvailable = canUseVoiceRecording();
+
+  const setLiveSessionActiveState = useCallback((active: boolean) => {
+    liveSessionActiveRef.current = active;
+    setIsLiveSessionActive(active);
+  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -646,18 +691,36 @@ export default function TrainProcedurePage() {
       setBackendHealth(nextHealth);
       setSetupHealthError(null);
       setSetupChecksUpdatedAt(new Date().toISOString());
+      return {
+        backendHealth: nextHealth,
+        cameraPermissionState: nextCameraPermission,
+        isOnline:
+          typeof window !== "undefined" ? window.navigator.onLine : isOnline,
+        microphonePermissionState: nextMicrophonePermission,
+        setupHealthError: null,
+      };
     } catch (error) {
-      setSetupHealthError(
+      const nextMessage =
         error instanceof Error
           ? error.message
-          : "The backend health check could not be reached.",
+          : "The backend health check could not be reached.";
+      setSetupHealthError(
+        nextMessage,
       );
       setBackendHealth(null);
       setSetupChecksUpdatedAt(new Date().toISOString());
+      return {
+        backendHealth: null,
+        cameraPermissionState,
+        isOnline:
+          typeof window !== "undefined" ? window.navigator.onLine : isOnline,
+        microphonePermissionState,
+        setupHealthError: nextMessage,
+      };
     } finally {
       setIsRefreshingSetupChecks(false);
     }
-  }, []);
+  }, [cameraPermissionState, isOnline, microphonePermissionState]);
 
   const cancelMicDiagnostics = useCallback(async () => {
     micDiagnosticRunIdRef.current += 1;
@@ -1291,8 +1354,10 @@ export default function TrainProcedurePage() {
         ?.content.trim() ?? "",
     [coachMessages],
   );
-  const coachLoopEnabled = cameraReady && !isSetupStage;
-  const voiceChatEnabled = coachLoopEnabled && equityMode.audioCoaching;
+  const voiceChatEnabled =
+    cameraReady && !isSetupStage && isLiveSessionActive && equityMode.audioCoaching;
+  const coachLoopEnabled = cameraReady && !isSetupStage && isLiveSessionActive;
+  const isPreviewCameraMode = cameraReady && !isLiveSessionActive;
   const captureProfileLabel = "Standard capture";
   const hasLiveSessionLimitReached = Boolean(
     authUser &&
@@ -1300,16 +1365,20 @@ export default function TrainProcedurePage() {
       (authUser.liveSessionRemaining ?? 0) <= 0,
   );
   const cameraToggleLabel = cameraReady
-    ? "Stop Camera"
+    ? isLiveSessionActive
+      ? "Stop Camera"
+      : "Stop Preview"
     : isSessionPaused
       ? "Resume Session"
+    : isSetupStage
+      ? "Start Preview"
     : hasLiveSessionLimitReached
       ? "Live Session Limit Reached"
     : cameraStatus.state === "requesting"
       ? "Connecting Camera..."
-      : cameraStatus.canRetry && cameraStatus.state !== "idle"
-        ? "Retry Camera"
-        : "Start Camera";
+        : cameraStatus.canRetry && cameraStatus.state !== "idle"
+          ? "Retry Camera"
+          : "Start Camera";
   const liveSessionQuotaLabel = useMemo(() => {
     if (!authUser) {
       return null;
@@ -1323,26 +1392,52 @@ export default function TrainProcedurePage() {
 
     return `${authUser.liveSessionRemaining ?? 0} of ${authUser.liveSessionLimit} live runs left`;
   }, [authUser]);
-  const setupChecks = useMemo<SetupCheck[]>(() => {
+  const buildSetupChecks = useCallback((
+    overrides?: {
+      backendHealth?: HealthStatus | null;
+      cameraPermissionState?: BrowserPermissionState;
+      cameraVerified?: boolean;
+      isOnline?: boolean;
+      microphonePermissionState?: BrowserPermissionState;
+      setupHealthError?: string | null;
+    },
+  ): SetupCheck[] => {
     const checks: SetupCheck[] = [];
-    const backendReachable = backendHealth?.status === "ok";
+    const nextBackendHealth = overrides?.backendHealth ?? backendHealth;
+    const nextSetupHealthError = overrides?.setupHealthError ?? setupHealthError;
+    const nextCameraPermissionState =
+      overrides?.cameraPermissionState ?? cameraPermissionState;
+    const nextMicrophonePermissionState =
+      overrides?.microphonePermissionState ?? microphonePermissionState;
+    const nextIsOnline = overrides?.isOnline ?? isOnline;
+    const nextCameraVerified = overrides?.cameraVerified ?? cameraReady;
+    const backendReachable = nextBackendHealth?.status === "ok";
     const transcriptionUsesOpenAI = Boolean(
-      backendHealth?.transcription_api_base_url
+      nextBackendHealth?.transcription_api_base_url
         ?.toLowerCase()
         .includes("api.openai.com"),
     );
+    const browserSpeechVerified = hasMicDiagnosticTranscript(browserMicDiagnostic);
+    const backendSpeechVerified = hasMicDiagnosticTranscript(backendMicDiagnostic);
+    const microphonePermissionGranted = nextMicrophonePermissionState === "granted";
+    const microphoneVerified =
+      browserSpeechVerified ||
+      backendSpeechVerified ||
+      microphonePermissionGranted;
+    const backendSpeechReady =
+      Boolean(nextBackendHealth?.transcription_ready) && browserVoiceRecordingAvailable;
 
     checks.push(
       backendReachable
         ? {
             id: "backend",
             label: "Backend services",
-            status: backendHealth.ai_ready ? "pass" : "retry",
-            summary: backendHealth.ai_ready
+            status: nextBackendHealth.ai_ready ? "pass" : "retry",
+            summary: nextBackendHealth.ai_ready
               ? "API and AI coach are reachable"
               : "API reachable, but AI coach config needs attention",
-            detail: backendHealth.ai_ready
-              ? `Simulation-only mode is ${backendHealth.simulation_only ? "on" : "off"}. Coach provider '${backendHealth.ai_provider}' is configured with model '${backendHealth.ai_coach_model}'.`
+            detail: nextBackendHealth.ai_ready
+              ? `Simulation-only mode is ${nextBackendHealth.simulation_only ? "on" : "off"}. Coach provider '${nextBackendHealth.ai_provider}' is configured with model '${nextBackendHealth.ai_coach_model}'.`
               : "The API responded, but the AI coach configuration is incomplete.",
           }
         : {
@@ -1351,7 +1446,7 @@ export default function TrainProcedurePage() {
             status: "unsafe",
             summary: "Backend health check failed",
             detail:
-              setupHealthError ??
+              nextSetupHealthError ??
               "The trainer could not reach the backend health endpoint.",
           },
     );
@@ -1383,10 +1478,7 @@ export default function TrainProcedurePage() {
         summary: "Camera capture is not supported",
         detail: "This browser does not expose getUserMedia for live video capture.",
       });
-    } else if (
-      cameraStatus.state === "blocked" ||
-      cameraPermissionState === "denied"
-    ) {
+    } else if (cameraStatus.state === "blocked" || nextCameraPermissionState === "denied") {
       checks.push({
         id: "camera",
         label: "Camera",
@@ -1396,7 +1488,7 @@ export default function TrainProcedurePage() {
           cameraStatus.message ??
           "Allow camera access in the browser before starting live analysis.",
       });
-    } else if (cameraReady) {
+    } else if (nextCameraVerified) {
       checks.push({
         id: "camera",
         label: "Camera",
@@ -1408,15 +1500,19 @@ export default function TrainProcedurePage() {
       checks.push({
         id: "camera",
         label: "Camera",
-        status: cameraStatus.state === "requesting" ? "retry" : "pass",
+        status: "retry",
         summary:
           cameraStatus.state === "requesting"
             ? "Waiting for camera permission"
-            : "Camera support detected",
+            : nextCameraPermissionState === "granted"
+              ? "Camera permission granted"
+              : "Camera not yet verified",
         detail:
           cameraStatus.state === "requesting"
             ? "The browser is still negotiating camera access."
-            : "The camera can be started from setup or when you press Check My Step.",
+            : nextCameraPermissionState === "granted"
+              ? "The browser granted camera access, but the live preview has not been started yet."
+              : "The browser reports camera support, but the camera has not been proven live yet. Start it once to verify the feed.",
       });
     }
 
@@ -1429,7 +1525,7 @@ export default function TrainProcedurePage() {
         detail:
           "This browser cannot open microphone capture for live voice coaching.",
       });
-    } else if (microphonePermissionState === "denied") {
+    } else if (nextMicrophonePermissionState === "denied") {
       checks.push({
         id: "microphone",
         label: "Microphone",
@@ -1438,19 +1534,28 @@ export default function TrainProcedurePage() {
         detail:
           "Allow microphone access so the voice coach can listen to learner replies.",
       });
-    } else {
+    } else if (microphoneVerified) {
       checks.push({
         id: "microphone",
         label: "Microphone",
         status: "pass",
-        summary:
-          microphonePermissionState === "granted"
-            ? "Microphone is ready"
-            : "Microphone can be requested on demand",
+        summary: browserSpeechVerified || backendSpeechVerified
+          ? "Microphone verified"
+          : "Microphone permission granted",
+        detail: browserSpeechVerified
+          ? "A browser speech-to-text test already captured a transcript from this microphone."
+          : backendSpeechVerified
+            ? "A backend transcription test already captured a transcript from this microphone."
+            : "The browser granted microphone access. A spoken test remains optional under Check Audio.",
+      });
+    } else {
+      checks.push({
+        id: "microphone",
+        label: "Microphone",
+        status: "retry",
+        summary: "Microphone permission not yet granted",
         detail:
-          microphonePermissionState === "granted"
-            ? "The browser already granted microphone access for voice coaching."
-            : "The trainer will request microphone access when voice capture is needed.",
+          "The trainer can prompt for microphone access during setup without requiring a spoken sample.",
       });
     }
 
@@ -1462,26 +1567,56 @@ export default function TrainProcedurePage() {
         summary: "Audio coaching is turned off",
         detail: "Enable audio coaching if you want hands-free voice interaction.",
       });
-    } else if (browserSpeechRecognitionAvailable) {
+    } else if (browserSpeechVerified) {
+      checks.push({
+        id: "speech-path",
+        label: "Speech path",
+        status: "pass",
+        summary: "Browser speech-to-text verified",
+        detail:
+          "Browser speech-to-text captured a usable transcript, so the live coach can rely on it for learner replies.",
+      });
+    } else if (backendSpeechVerified) {
+      checks.push({
+        id: "speech-path",
+        label: "Speech path",
+        status: "pass",
+        summary: transcriptionUsesOpenAI
+          ? "Backend OpenAI transcription verified"
+          : "Backend transcription verified",
+        detail: transcriptionUsesOpenAI
+          ? `A backend mic test already returned a transcript through the OpenAI transcription service using '${nextBackendHealth?.transcription_model}'.`
+          : `A backend mic test already returned a transcript through the transcription service using '${nextBackendHealth?.transcription_model}'.`,
+      });
+    } else if (browserSpeechRecognitionAvailable && microphonePermissionGranted) {
       checks.push({
         id: "speech-path",
         label: "Speech path",
         status: "pass",
         summary: "Browser speech-to-text available",
         detail:
-          "The live coach will try in-browser speech recognition first for faster learner replies.",
+          "Browser speech recognition is available and microphone permission is granted. A spoken test remains optional under Check Audio.",
       });
-    } else if (browserVoiceRecordingAvailable && backendHealth?.transcription_ready) {
+    } else if (backendSpeechReady && microphonePermissionGranted) {
       checks.push({
         id: "speech-path",
         label: "Speech path",
         status: "pass",
         summary: transcriptionUsesOpenAI
-          ? "Backend OpenAI transcription fallback ready"
-          : "Backend transcription fallback ready",
+          ? "Backend OpenAI fallback ready"
+          : "Backend fallback ready",
         detail: transcriptionUsesOpenAI
-          ? `Browser speech-to-text is unavailable, so learner replies will fall back to the backend OpenAI transcription service using '${backendHealth.transcription_model}'.`
-          : `Browser speech-to-text is unavailable, so learner replies will fall back to the backend transcription service using '${backendHealth.transcription_model}'.`,
+          ? "Browser speech-to-text is unavailable here, but the OpenAI transcription fallback is configured and microphone permission is granted."
+          : "Browser speech-to-text is unavailable here, but the backend transcription fallback is configured and microphone permission is granted.",
+      });
+    } else if (browserSpeechRecognitionAvailable || backendSpeechReady) {
+      checks.push({
+        id: "speech-path",
+        label: "Speech path",
+        status: "retry",
+        summary: "Speech path available, waiting for mic permission",
+        detail:
+          "Grant microphone permission during setup so the trainer can enable the available speech path.",
       });
     } else {
       checks.push({
@@ -1495,7 +1630,7 @@ export default function TrainProcedurePage() {
     }
 
     checks.push(
-      isOnline
+      nextIsOnline
         ? {
             id: "network",
             label: "Network",
@@ -1541,6 +1676,7 @@ export default function TrainProcedurePage() {
   }, [
     authUser,
     backendHealth,
+    browserMicDiagnostic,
     browserSpeechRecognitionAvailable,
     browserVoiceRecordingAvailable,
     cameraPermissionState,
@@ -1555,7 +1691,12 @@ export default function TrainProcedurePage() {
     mediaCaptureSupported,
     microphonePermissionState,
     setupHealthError,
+    backendMicDiagnostic,
   ]);
+  const setupChecks = useMemo<SetupCheck[]>(
+    () => buildSetupChecks(),
+    [buildSetupChecks],
+  );
   const setupSummaryTone = setupChecks.some((check) => check.status === "unsafe")
     ? "status-unsafe"
     : setupChecks.some((check) => check.status === "retry")
@@ -1827,8 +1968,13 @@ export default function TrainProcedurePage() {
     return Math.round(feedback.confidence * 100);
   }, [currentStageId, feedback, feedbackStageId]);
   const voiceStatusHeadline = useMemo(
-    () => getVoiceStatusHeadline(voiceSessionStatus, cameraReady),
-    [cameraReady, voiceSessionStatus],
+    () =>
+      getVoiceStatusHeadline(
+        voiceSessionStatus,
+        cameraReady,
+        isLiveSessionActive,
+      ),
+    [cameraReady, isLiveSessionActive, voiceSessionStatus],
   );
   const captureProfileSignature = "standard";
   const demoTimerLabel = useMemo(() => {
@@ -1840,19 +1986,29 @@ export default function TrainProcedurePage() {
       return `Paused at ${formatDurationClock(demoTimeRemainingMs)}`;
     }
 
-    if (cameraReady) {
+    if (cameraReady && isLiveSessionActive) {
       return `${formatDurationClock(demoTimeRemainingMs)} remaining`;
     }
 
+    if (cameraReady) {
+      return "Local preview";
+    }
+
     return "2-minute limit";
-  }, [cameraReady, demoSessionExpired, demoTimeRemainingMs, isSessionPaused]);
+  }, [
+    cameraReady,
+    demoSessionExpired,
+    demoTimeRemainingMs,
+    isLiveSessionActive,
+    isSessionPaused,
+  ]);
   const demoTimerTone = demoSessionExpired
     ? "status-unsafe"
     : isSessionPaused
       ? "status-retry"
-    : cameraReady && demoTimeRemainingMs <= 30_000
+    : cameraReady && isLiveSessionActive && demoTimeRemainingMs <= 30_000
       ? "status-retry"
-      : cameraReady
+      : cameraReady && isLiveSessionActive
         ? "status-pass"
         : "";
   const liveBottomHeadline = demoSessionExpired
@@ -1866,6 +2022,7 @@ export default function TrainProcedurePage() {
         audioCoachingEnabled: equityMode.audioCoaching,
         cameraReady,
         demoSessionExpired,
+        isLiveSessionActive,
         isSessionPaused,
         isSetupStage,
         voiceSessionStatus,
@@ -1874,6 +2031,7 @@ export default function TrainProcedurePage() {
       cameraReady,
       demoSessionExpired,
       equityMode.audioCoaching,
+      isLiveSessionActive,
       isSessionPaused,
       isSetupStage,
       voiceSessionStatus,
@@ -1885,8 +2043,12 @@ export default function TrainProcedurePage() {
       ? `This run is paused with ${formatDurationClock(
           demoTimeRemainingMs,
         )} remaining. Resume it to continue without using another live run.`
+    : isPreviewCameraMode && isSetupStage
+      ? "Camera preview is live for local setup only. This has not used a counted live session yet."
+    : isPreviewCameraMode
+      ? "Camera preview is live. Your counted live session will begin when you run the first real training step."
     : cameraReady && isSetupStage
-      ? "Camera is live. Confirm the setup first, then hands-free coaching will begin."
+      ? "Finish the local setup check first. The counted live session will begin when real training starts."
     : cameraReady
       ? `Hackathon demo timer: ${formatDurationClock(
           demoTimeRemainingMs,
@@ -1999,42 +2161,102 @@ export default function TrainProcedurePage() {
     return demoSessionExpiredRef.current ? 0 : demoTimeRemainingMs;
   }, [demoTimeRemainingMs]);
 
+  const startLiveSessionWindow = useCallback((resume = false) => {
+    const resumedRemainingMs = Math.max(
+      0,
+      pausedDemoTimeRemainingRef.current ?? demoTimeRemainingMs,
+    );
+    const nextTimeRemainingMs =
+      resume && resumedRemainingMs > 0
+        ? resumedRemainingMs
+        : DEMO_CAMERA_SESSION_LIMIT_MS;
+
+    demoDeadlineRef.current = Date.now() + nextTimeRemainingMs;
+    demoSessionExpiredRef.current = false;
+    setDemoSessionExpired(false);
+    setDemoTimeRemainingMs(nextTimeRemainingMs);
+
+    if (resume) {
+      pausedDemoTimeRemainingRef.current = null;
+      resumePausedSessionRef.current = false;
+    }
+
+    setIsSessionPaused(false);
+    cameraStopModeRef.current = "idle";
+  }, [demoTimeRemainingMs]);
+
+  const activateLiveSessionIfNeeded = useCallback(async (): Promise<boolean> => {
+    if (liveSessionActiveRef.current) {
+      return true;
+    }
+
+    if (hasLiveSessionLimitReached) {
+      setLiveSessionAccessError(
+        "This demo account has used all 10 live sessions. Please ask an admin or the developer team to reset the limit.",
+      );
+      return false;
+    }
+
+    try {
+      const nextUser = await consumeAuthLiveSession();
+      setAuthUser(nextUser);
+      setLiveSessionActiveState(true);
+      setLiveSessionAccessError(null);
+
+      if (cameraReady || cameraRef.current?.hasLiveStream()) {
+        startLiveSessionWindow(false);
+      }
+
+      return true;
+    } catch (error) {
+      const nextMessage =
+        error instanceof Error
+          ? error.message
+          : "This account could not start another live session.";
+      setLiveSessionAccessError(nextMessage);
+      return false;
+    }
+  }, [
+    cameraReady,
+    hasLiveSessionLimitReached,
+    setLiveSessionActiveState,
+    startLiveSessionWindow,
+  ]);
+
   function handleCameraReadyChange(ready: boolean) {
     setCameraReady(ready);
     liveCaptureProfileRef.current = ready ? captureProfileSignature : null;
 
     if (ready) {
-      const isResumingPausedSession = resumePausedSessionRef.current;
-      const resumedRemainingMs = Math.max(
-        0,
-        pausedDemoTimeRemainingRef.current ?? demoTimeRemainingMs,
-      );
-      const nextTimeRemainingMs =
-        isResumingPausedSession && resumedRemainingMs > 0
-          ? resumedRemainingMs
-          : DEMO_CAMERA_SESSION_LIMIT_MS;
-
-      demoDeadlineRef.current = Date.now() + nextTimeRemainingMs;
-      demoSessionExpiredRef.current = false;
-      setDemoSessionExpired(false);
-      setDemoTimeRemainingMs(nextTimeRemainingMs);
-      if (isResumingPausedSession) {
-        pausedDemoTimeRemainingRef.current = null;
-        resumePausedSessionRef.current = false;
+      if (liveSessionActiveRef.current) {
+        startLiveSessionWindow(resumePausedSessionRef.current);
+      } else {
+        demoDeadlineRef.current = null;
+        demoSessionExpiredRef.current = false;
+        setDemoSessionExpired(false);
+        setDemoTimeRemainingMs(DEMO_CAMERA_SESSION_LIMIT_MS);
+        setIsSessionPaused(false);
+        cameraStopModeRef.current = "idle";
       }
-      setIsSessionPaused(false);
-      cameraStopModeRef.current = "idle";
     } else {
       demoDeadlineRef.current = null;
-      if (cameraStopModeRef.current === "pause") {
+      if (
+        liveSessionActiveRef.current &&
+        cameraStopModeRef.current === "pause"
+      ) {
         setDemoTimeRemainingMs(
           Math.max(0, pausedDemoTimeRemainingRef.current ?? demoTimeRemainingMs),
         );
       } else {
         pausedDemoTimeRemainingRef.current = null;
+        const preserveExpiredState = demoSessionExpiredRef.current;
         setDemoTimeRemainingMs(
-          demoSessionExpiredRef.current ? 0 : DEMO_CAMERA_SESSION_LIMIT_MS,
+          preserveExpiredState ? 0 : DEMO_CAMERA_SESSION_LIMIT_MS,
         );
+        setDemoSessionExpired(preserveExpiredState);
+        if (!preserveExpiredState) {
+          demoSessionExpiredRef.current = false;
+        }
         setIsSessionPaused(false);
         resumePausedSessionRef.current = false;
       }
@@ -2100,22 +2322,31 @@ export default function TrainProcedurePage() {
 
     if (camera.hasLiveStream()) {
       setLiveSessionAccessError(null);
-      cameraStopModeRef.current = "end";
-      pausedDemoTimeRemainingRef.current = null;
-      resumePausedSessionRef.current = false;
-      setIsSessionPaused(false);
-      camera.stopCamera(
-        "Session ended. Start the camera again to begin another guided run.",
-      );
+      if (liveSessionActiveRef.current) {
+        cameraStopModeRef.current = "end";
+        pausedDemoTimeRemainingRef.current = null;
+        resumePausedSessionRef.current = false;
+        setIsSessionPaused(false);
+        setLiveSessionActiveState(false);
+        camera.stopCamera(
+          "Session ended. Start the camera again to begin another guided run.",
+        );
+      } else {
+        cameraStopModeRef.current = "idle";
+        camera.stopCamera(
+          "Local preview stopped. Start the camera again when you are ready.",
+        );
+      }
       return;
     }
 
     const isResumingPausedSession =
+      liveSessionActiveRef.current &&
       isSessionPaused &&
       !demoSessionExpired &&
       getDemoTimeRemainingSnapshot() > 0;
 
-    if (hasLiveSessionLimitReached && !isResumingPausedSession) {
+    if (!isSetupStage && hasLiveSessionLimitReached && !isResumingPausedSession) {
       setLiveSessionAccessError(
         "This demo account has used all 10 live sessions. Please ask an admin or the developer team to reset the limit.",
       );
@@ -2136,35 +2367,36 @@ export default function TrainProcedurePage() {
       return;
     }
 
+    if (isSetupStage && !liveSessionActiveRef.current) {
+      setLiveSessionAccessError(null);
+      return;
+    }
+
     if (isResumingPausedSession) {
       setLiveSessionAccessError(null);
       return;
     }
 
-    try {
-      const nextUser = await consumeAuthLiveSession();
-      setAuthUser(nextUser);
-      setLiveSessionAccessError(null);
-    } catch (error) {
-      const nextMessage =
-        error instanceof Error
-          ? error.message
-          : "This account could not start another live session.";
-      setLiveSessionAccessError(
-        `${nextMessage} The camera is still live for this demo run.`,
+    const didActivate = await activateLiveSessionIfNeeded();
+    if (!didActivate) {
+      camera.stopCamera(
+        "Live training could not start. The preview was closed so your live-session count stays unchanged.",
       );
     }
   }, [
+    activateLiveSessionIfNeeded,
     demoSessionExpired,
     getDemoTimeRemainingSnapshot,
     hasLiveSessionLimitReached,
     isSessionPaused,
+    isSetupStage,
+    setLiveSessionActiveState,
   ]);
 
   const handlePauseSession = useCallback(() => {
     const camera = cameraRef.current;
 
-    if (!camera || !camera.hasLiveStream()) {
+    if (!camera || !camera.hasLiveStream() || !liveSessionActiveRef.current) {
       return;
     }
 
@@ -2191,6 +2423,7 @@ export default function TrainProcedurePage() {
   const handleEndSession = useCallback(() => {
     const camera = cameraRef.current;
 
+    setLiveSessionActiveState(false);
     pausedDemoTimeRemainingRef.current = null;
     resumePausedSessionRef.current = false;
     cameraStopModeRef.current = "end";
@@ -2209,7 +2442,7 @@ export default function TrainProcedurePage() {
         "Session ended. Start the camera again to begin another guided run.",
       );
     }
-  }, []);
+  }, [setLiveSessionActiveState]);
 
   function handleSkillLevelChange(nextSkillLevel: SkillLevel) {
     setSkillLevel(nextSkillLevel);
@@ -2278,10 +2511,11 @@ export default function TrainProcedurePage() {
     setCoachMessages([]);
     setCoachTurn(null);
     setCoachError(null);
+    setLiveSessionActiveState(false);
     setIsCoachLoading(false);
     cancelActiveVoiceCapture();
     stopSpeechPlayback();
-    setVoiceSessionStatus(cameraReady ? "starting" : "idle");
+    setVoiceSessionStatus("idle");
     setFrozenFrameUrl(null);
     setStudentQuestion("");
     setSimulationConfirmed(true);
@@ -2289,9 +2523,7 @@ export default function TrainProcedurePage() {
     resumePausedSessionRef.current = false;
     cameraStopModeRef.current = "idle";
     setIsSessionPaused(false);
-    demoDeadlineRef.current = cameraReady
-      ? Date.now() + DEMO_CAMERA_SESSION_LIMIT_MS
-      : null;
+    demoDeadlineRef.current = null;
     demoSessionExpiredRef.current = false;
     setDemoSessionExpired(false);
     setDemoTimeRemainingMs(DEMO_CAMERA_SESSION_LIMIT_MS);
@@ -2328,6 +2560,88 @@ export default function TrainProcedurePage() {
     setAnalyzeError(reason);
   }, [currentStageId, equityMode, persistSession, studentQuestion]);
 
+  const buildLocalSetupFeedback = useCallback((
+    options?: {
+      backendHealth?: HealthStatus | null;
+      cameraPermissionState?: BrowserPermissionState;
+      cameraVerified?: boolean;
+      isOnline?: boolean;
+      microphonePermissionState?: BrowserPermissionState;
+      setupHealthError?: string | null;
+    },
+  ): AnalyzeFrameResponse => {
+    const effectiveSetupChecks = buildSetupChecks(options);
+    const unresolvedChecks = effectiveSetupChecks.filter((check) => check.status !== "pass");
+    const blockingChecks = unresolvedChecks.filter((check) => check.status === "unsafe");
+    const passedChecks = effectiveSetupChecks
+      .filter((check) => check.status === "pass")
+      .map((check) => `${check.label}: ${check.summary}`);
+    const issues: Issue[] = unresolvedChecks.map((check) => ({
+      code: `setup_${check.id}`,
+      severity: check.status === "unsafe" ? "high" : "medium",
+      message: `${check.label}: ${check.summary}. ${check.detail}`,
+    }));
+
+    if (unresolvedChecks.length === 0) {
+      return {
+        analysis_mode: "coaching",
+        step_status: "pass",
+        grading_decision: "graded",
+        grading_reason: "Local setup verification passed.",
+        confidence: 1,
+        visible_observations: passedChecks,
+        issues: [],
+        coaching_message:
+          "Local setup checks passed. Camera, audio path, backend reachability, and quota are ready for live training.",
+        next_action:
+          "Move into the first live stage. The counted live session will begin when you start real step training.",
+        overlay_target_ids: [],
+        score_delta: 0,
+        safety_gate: {
+          status: "cleared",
+          confidence: 1,
+          reason: "Local setup verification passed.",
+        },
+        requires_human_review: false,
+        human_review_reason: null,
+        review_case_id: null,
+      };
+    }
+
+    const stepStatus = blockingChecks.length > 0 ? "unsafe" : "retry";
+    const nextCheck = unresolvedChecks[0];
+
+    return {
+      analysis_mode: "blocked",
+      step_status: stepStatus,
+      grading_decision: "not_graded",
+      grading_reason: "Local setup verification found unresolved checks.",
+      confidence: blockingChecks.length > 0 ? 0.4 : 0.7,
+      visible_observations: passedChecks,
+      issues,
+      coaching_message:
+        blockingChecks.length > 0
+          ? "Setup is blocked by one or more required checks. Resolve the highlighted items before starting live training."
+          : "Setup is almost ready. Finish the remaining local checks and run Check My Step again.",
+      next_action:
+        nextCheck?.detail ??
+        "Finish the remaining setup checks, then run Check My Step again.",
+      overlay_target_ids: [],
+      score_delta: 0,
+      safety_gate: {
+        status: blockingChecks.length > 0 ? "blocked" : "cleared",
+        confidence: blockingChecks.length > 0 ? 0.9 : 0.6,
+        reason:
+          blockingChecks.length > 0
+            ? "Required setup checks are still blocked."
+            : "Some setup checks still need verification.",
+      },
+      requires_human_review: false,
+      human_review_reason: null,
+      review_case_id: null,
+    };
+  }, [buildSetupChecks]);
+
   const handleAnalyzeStep = useCallback(async () => {
     if (!procedure || !currentStage || !session || !authUser) {
       return;
@@ -2342,32 +2656,144 @@ export default function TrainProcedurePage() {
       return;
     }
 
-    let capturedFrame = await cameraRef.current?.captureFrame({
+    if (currentStage.id === "setup") {
+      setIsAnalyzing(true);
+      setAnalyzeError(null);
+
+      try {
+        const setupStartedAt = performance.now();
+        let cameraVerified = cameraRef.current?.hasLiveStream() ?? false;
+
+        const getRemainingSetupBudgetMs = () =>
+          Math.max(
+            500,
+            SETUP_LOCAL_CHECK_TIMEOUT_MS -
+              Math.round(performance.now() - setupStartedAt),
+          );
+
+        if (!cameraVerified && mediaCaptureSupported) {
+          await withTimeout(
+            cameraRef.current?.startCamera() ?? Promise.resolve(),
+            getRemainingSetupBudgetMs(),
+            "Camera permission took too long. Please allow camera access and run Check My Step again.",
+          );
+          cameraVerified = cameraRef.current?.hasLiveStream() ?? false;
+        }
+
+        if (
+          browserVoiceRecordingAvailable &&
+          microphonePermissionState !== "granted"
+        ) {
+          await withTimeout(
+            primeVoiceRecordingPermission(),
+            getRemainingSetupBudgetMs(),
+            "Microphone permission took too long. Please allow microphone access and run Check My Step again.",
+          );
+        }
+
+        const setupSnapshot = await withTimeout(
+          refreshSetupChecks(),
+          getRemainingSetupBudgetMs(),
+          "Setup checks took too long. Please try again.",
+        );
+
+        const response = buildLocalSetupFeedback({
+          backendHealth: setupSnapshot.backendHealth,
+          cameraPermissionState: setupSnapshot.cameraPermissionState,
+          cameraVerified,
+          isOnline: setupSnapshot.isOnline,
+          microphonePermissionState: setupSnapshot.microphonePermissionState,
+          setupHealthError: setupSnapshot.setupHealthError,
+        });
+        const attempt =
+          session.events.filter((event) => event.stageId === currentStage.id).length + 1;
+        const event: SessionEvent = {
+          stageId: currentStage.id,
+          attempt,
+          stepStatus: response.step_status,
+          analysisMode: response.analysis_mode,
+          graded: response.grading_decision === "graded",
+          gradingReason: response.grading_reason ?? undefined,
+          issues: response.issues,
+          scoreDelta: response.score_delta,
+          coachingMessage: response.coaching_message,
+          overlayTargetIds: response.overlay_target_ids,
+          visibleObservations: response.visible_observations,
+          nextAction: response.next_action,
+          confidence: response.confidence,
+          safetyGate: response.safety_gate,
+          requiresHumanReview: response.requires_human_review,
+          humanReviewReason: response.human_review_reason ?? undefined,
+          reviewCaseId: response.review_case_id ?? undefined,
+          createdAt: new Date().toISOString(),
+        };
+
+        persistSession({
+          ...session,
+          ownerUsername: session.ownerUsername ?? authUser.username,
+          skillLevel,
+          calibration,
+          equityMode,
+          debrief: undefined,
+          events: [...session.events, event],
+          updatedAt: new Date().toISOString(),
+        });
+
+        setFeedback(response);
+        setFeedbackStageId(currentStage.id);
+        setAnalyzeError(null);
+        setFrozenFrameUrl(null);
+
+        if (
+          response.step_status === "pass" &&
+          response.grading_decision === "graded"
+        ) {
+          const nextStageId = findNextStageId(procedure, currentStage.id);
+          if (nextStageId) {
+            setCurrentStageId(nextStageId);
+            setStudentQuestion("");
+            setActiveWorkspacePanel("checklist");
+          }
+        }
+      } catch (error) {
+        setAnalyzeError(
+          error instanceof Error
+            ? error.message
+            : "The local setup check could not finish.",
+        );
+      } finally {
+        if (
+          currentStage.id === "setup" &&
+          cameraRef.current?.hasLiveStream() &&
+          !liveSessionActiveRef.current
+        ) {
+          cameraStopModeRef.current = "idle";
+          cameraRef.current.stopCamera(
+            "Local setup check finished. Start the camera again when you are ready for live training.",
+          );
+        }
+        setIsAnalyzing(false);
+      }
+      return;
+    }
+
+    const capturedFrame = await cameraRef.current?.captureFrame({
       mode: "analysis",
     });
-
-    if (!capturedFrame && currentStage.id === "setup" && !cameraReady) {
-      await handleCameraToggle();
-
-      for (let attempt = 0; attempt < 12; attempt += 1) {
-        await new Promise((resolve) => {
-          window.setTimeout(resolve, 180);
-        });
-
-        capturedFrame = await cameraRef.current?.captureFrame({
-          mode: "analysis",
-        });
-        if (capturedFrame) {
-          break;
-        }
-      }
-    }
 
     if (!capturedFrame) {
       setAnalyzeError(
         currentStage.id === "setup"
-          ? "I could not capture the setup frame yet. Start the camera, keep the field visible, and try again."
+          ? "Setup analysis will not start a live session automatically. Start the camera first if you want a frame-based setup check."
           : "Turn on the camera and keep a visible frame before analyzing this step.",
+      );
+      return;
+    }
+
+    const didActivateLiveSession = await activateLiveSessionIfNeeded();
+    if (!didActivateLiveSession) {
+      setAnalyzeError(
+        "Live training could not start yet. Resolve the session-access issue and try again.",
       );
       return;
     }
@@ -2472,18 +2898,22 @@ export default function TrainProcedurePage() {
       setIsAnalyzing(false);
     }
   }, [
+    activateLiveSessionIfNeeded,
     appendOfflinePracticeLog,
     authUser,
+    buildLocalSetupFeedback,
     calibration,
     currentStage,
     equityMode,
-    cameraReady,
-    handleCameraToggle,
     isOnline,
     latestLearnerGoal,
+    browserVoiceRecordingAvailable,
+    mediaCaptureSupported,
+    microphonePermissionState,
     practiceSurface,
     procedure,
     persistSession,
+    refreshSetupChecks,
     session,
     simulationConfirmed,
     skillLevel,
@@ -2628,11 +3058,15 @@ export default function TrainProcedurePage() {
     coachMessagesRef.current = [];
     lastCoachMessageRef.current = null;
     lastCoachTurnAtRef.current = null;
-    setVoiceSessionStatus(cameraReady && currentStageId !== "setup" ? "starting" : "idle");
-  }, [cameraReady, currentStageId]);
+    setVoiceSessionStatus(
+      cameraReady && currentStageId !== "setup" && isLiveSessionActive
+        ? "starting"
+        : "idle",
+    );
+  }, [cameraReady, currentStageId, isLiveSessionActive]);
 
   useEffect(() => {
-    if (!cameraReady) {
+    if (!cameraReady || !isLiveSessionActive) {
       return;
     }
 
@@ -2651,6 +3085,7 @@ export default function TrainProcedurePage() {
 
       demoDeadlineRef.current = null;
       demoSessionExpiredRef.current = true;
+      setLiveSessionActiveState(false);
       setDemoSessionExpired(true);
       setCoachError(
         "The 2-minute hackathon demo window ended. Start the camera again if you want another Claude-guided run.",
@@ -2666,7 +3101,7 @@ export default function TrainProcedurePage() {
     return () => {
       window.clearInterval(intervalId);
     };
-  }, [cameraReady]);
+  }, [cameraReady, isLiveSessionActive, setLiveSessionActiveState]);
 
   useEffect(() => {
     const generation = voiceLoopGenerationRef.current + 1;
@@ -3483,7 +3918,10 @@ export default function TrainProcedurePage() {
             className="button-primary trainer-session-action"
             disabled={
               cameraStatus.state === "requesting" ||
-              (!cameraReady && hasLiveSessionLimitReached && !isSessionPaused)
+              (!cameraReady &&
+                !isSetupStage &&
+                hasLiveSessionLimitReached &&
+                !isSessionPaused)
             }
             onClick={() => void handleCameraToggle()}
             type="button"
@@ -3556,34 +3994,49 @@ export default function TrainProcedurePage() {
             </div>
             <div className="trainer-camera-controls">
               <div className="trainer-camera-controls-copy">
-                <p className="trainer-camera-controls-label">Session controls</p>
+                <p className="trainer-camera-controls-label">
+                  {isPreviewCameraMode ? "Preview controls" : "Session controls"}
+                </p>
                 <p className="trainer-camera-controls-status">
                   {cameraStatus.label}
                 </p>
               </div>
               <div className="trainer-camera-controls-actions">
-                <button
-                  className="button-primary"
-                  disabled={
-                    cameraStatus.state === "requesting" ||
-                    (!cameraReady && !isSessionPaused)
-                  }
-                  onClick={() => void handlePauseSessionToggle()}
-                  type="button"
-                >
-                  {isSessionPaused ? "Resume Session" : "Pause Session"}
-                </button>
-                <button
-                  className="button-secondary"
-                  disabled={
-                    cameraStatus.state === "requesting" ||
-                    (!cameraReady && !isSessionPaused)
-                  }
-                  onClick={handleEndSession}
-                  type="button"
-                >
-                  End Session
-                </button>
+                {isPreviewCameraMode ? (
+                  <button
+                    className="button-secondary"
+                    disabled={cameraStatus.state === "requesting" || !cameraReady}
+                    onClick={() => void handleCameraToggle()}
+                    type="button"
+                  >
+                    Stop Preview
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      className="button-primary"
+                      disabled={
+                        cameraStatus.state === "requesting" ||
+                        (!cameraReady && !isSessionPaused)
+                      }
+                      onClick={() => void handlePauseSessionToggle()}
+                      type="button"
+                    >
+                      {isSessionPaused ? "Resume Session" : "Pause Session"}
+                    </button>
+                    <button
+                      className="button-secondary"
+                      disabled={
+                        cameraStatus.state === "requesting" ||
+                        (!cameraReady && !isSessionPaused)
+                      }
+                      onClick={handleEndSession}
+                      type="button"
+                    >
+                      End Session
+                    </button>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -3633,7 +4086,7 @@ export default function TrainProcedurePage() {
                     </button>
                     {showStopAudioShortcut ? (
                       <button
-                        className="button-secondary"
+                        className="button-danger"
                         onClick={() => void handleStopAudioShortcut()}
                         type="button"
                       >
