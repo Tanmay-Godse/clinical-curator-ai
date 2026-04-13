@@ -290,6 +290,8 @@ export type VoiceRecordingOptions = {
 type BrowserSpeechRecognitionOptions = {
   language: FeedbackLanguage;
   maxDurationMs?: number;
+  maxInterimSilenceMs?: number;
+  stopAfterFinalResultMs?: number;
 };
 
 export type BrowserSpeechRecognitionResult = {
@@ -309,8 +311,10 @@ const DEFAULT_VOICE_RECORDING_SILENCE_DURATION_MS = 800;
 const DEFAULT_VOICE_RECORDING_SILENCE_THRESHOLD = 0.012;
 const DEFAULT_VOICE_RECORDING_FALLBACK_RMS = 0.006;
 const DEFAULT_VOICE_RECORDING_MIN_CLIP_DURATION_MS = 650;
-const BROWSER_SPEECH_START_TIMEOUT_MS = 1_600;
-const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 4_000;
+const DEFAULT_BROWSER_SPEECH_MAX_INTERIM_SILENCE_MS = 1_200;
+const DEFAULT_BROWSER_SPEECH_STOP_AFTER_FINAL_RESULT_MS = 650;
+const BROWSER_SPEECH_START_TIMEOUT_MS = 2_600;
+const BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS = 4_600;
 const BROWSER_SPEECH_MAX_COMPLETION_TIMEOUT_MS = 18_000;
 
 let activeAudioElement: HTMLAudioElement | null = null;
@@ -890,12 +894,19 @@ function startBrowserSpeechRecognition(
   const recognition = new SpeechRecognitionConstructor();
   const maxDurationMs =
     options.maxDurationMs ?? DEFAULT_VOICE_RECORDING_MAX_DURATION_MS;
+  const maxInterimSilenceMs =
+    options.maxInterimSilenceMs ?? DEFAULT_BROWSER_SPEECH_MAX_INTERIM_SILENCE_MS;
+  const stopAfterFinalResultMs =
+    options.stopAfterFinalResultMs ??
+    DEFAULT_BROWSER_SPEECH_STOP_AFTER_FINAL_RESULT_MS;
   let finalTranscript = "";
   let interimTranscript = "";
   let resultResolved = false;
   let discardRequested = false;
   let errorMessage: string | null = null;
   let maxDurationTimer: ReturnType<typeof setTimeout> | null = null;
+  let finalResultTimer: ReturnType<typeof setTimeout> | null = null;
+  let interimSilenceTimer: ReturnType<typeof setTimeout> | null = null;
   let resolveResult: ((result: BrowserSpeechRecognitionResult | null) => void) | null =
     null;
 
@@ -914,6 +925,31 @@ function startBrowserSpeechRecognition(
     }
   };
 
+  const clearFinalResultTimer = () => {
+    if (finalResultTimer) {
+      clearTimeout(finalResultTimer);
+      finalResultTimer = null;
+    }
+  };
+
+  const clearInterimSilenceTimer = () => {
+    if (interimSilenceTimer) {
+      clearTimeout(interimSilenceTimer);
+      interimSilenceTimer = null;
+    }
+  };
+
+  const requestRecognitionStop = () => {
+    try {
+      recognition.stop();
+    } catch {
+      resolveOnce({
+        transcript: buildTranscript(),
+        errorMessage,
+      });
+    }
+  };
+
   const resolveOnce = (value: BrowserSpeechRecognitionResult | null) => {
     if (resultResolved) {
       return;
@@ -921,6 +957,8 @@ function startBrowserSpeechRecognition(
 
     resultResolved = true;
     clearTimer();
+    clearFinalResultTimer();
+    clearInterimSilenceTimer();
     recognition.onend = null;
     recognition.onerror = null;
     recognition.onresult = null;
@@ -928,7 +966,7 @@ function startBrowserSpeechRecognition(
     resolveResult = null;
   };
 
-  recognition.continuous = true;
+  recognition.continuous = false;
   recognition.interimResults = true;
   recognition.lang = getSpeechLanguageCode(options.language);
   recognition.maxAlternatives = 1;
@@ -953,6 +991,26 @@ function startBrowserSpeechRecognition(
 
     finalTranscript = normalizeTranscript(nextFinalTranscript);
     interimTranscript = normalizeTranscript(nextInterimTranscript);
+
+    if (finalTranscript) {
+      clearInterimSilenceTimer();
+      clearFinalResultTimer();
+      finalResultTimer = setTimeout(() => {
+        requestRecognitionStop();
+      }, stopAfterFinalResultMs);
+      return;
+    }
+
+    clearFinalResultTimer();
+    if (interimTranscript) {
+      clearInterimSilenceTimer();
+      interimSilenceTimer = setTimeout(() => {
+        requestRecognitionStop();
+      }, maxInterimSilenceMs);
+      return;
+    }
+
+    clearInterimSilenceTimer();
   };
 
   recognition.onerror = (event) => {
@@ -982,14 +1040,7 @@ function startBrowserSpeechRecognition(
   };
 
   maxDurationTimer = setTimeout(() => {
-    try {
-      recognition.stop();
-    } catch {
-      resolveOnce({
-        transcript: buildTranscript(),
-        errorMessage,
-      });
-    }
+    requestRecognitionStop();
   }, maxDurationMs);
 
   try {
@@ -1262,7 +1313,32 @@ function playBrowserSpeech(
     let speechStarted = false;
     let startTimer: number | null = null;
     let completionTimer: number | null = null;
+    let startPollInterval: number | null = null;
     let handleVoicesChanged: (() => void) | null = null;
+
+    const markSpeechStarted = () => {
+      if (speechStarted) {
+        return;
+      }
+
+      speechStarted = true;
+      if (startTimer) {
+        window.clearTimeout(startTimer);
+        startTimer = null;
+      }
+      if (startPollInterval) {
+        window.clearInterval(startPollInterval);
+        startPollInterval = null;
+      }
+      if (!waitForCompletion) {
+        finalize(true);
+        return;
+      }
+
+      completionTimer = window.setTimeout(() => {
+        finalize(true);
+      }, completionTimeoutMs);
+    };
 
     const finalize = (didFinish: boolean) => {
       if (settled) {
@@ -1285,6 +1361,11 @@ function playBrowserSpeech(
         completionTimer = null;
       }
 
+      if (startPollInterval) {
+        window.clearInterval(startPollInterval);
+        startPollInterval = null;
+      }
+
       if (handleVoicesChanged) {
         synth.removeEventListener?.("voiceschanged", handleVoicesChanged);
       }
@@ -1298,10 +1379,12 @@ function playBrowserSpeech(
       BROWSER_SPEECH_MAX_COMPLETION_TIMEOUT_MS,
       Math.max(
         BROWSER_SPEECH_MIN_COMPLETION_TIMEOUT_MS,
-        text.trim().split(/\s+/).length * 420,
+        text.trim().split(/\s+/).length * 470,
       ),
     );
 
+    activeSpeechPlaybackResolver = finalize;
+    activeSpeechPlaybackCleanup = cleanup;
     startTimer = window.setTimeout(() => {
       finalize(false);
     }, BROWSER_SPEECH_START_TIMEOUT_MS);
@@ -1310,25 +1393,22 @@ function playBrowserSpeech(
       const utterance = new SpeechSynthesisUtterance(text);
       configureUtterance(utterance, language, preset);
       utterance.onstart = () => {
-        speechStarted = true;
-        if (startTimer) {
-          window.clearTimeout(startTimer);
-          startTimer = null;
-        }
-        if (!waitForCompletion) {
-          finalize(true);
-          return;
-        }
-
-        completionTimer = window.setTimeout(() => {
-          finalize(false);
-        }, completionTimeoutMs);
+        markSpeechStarted();
       };
       utterance.onerror = () => finalize(false);
       utterance.onend = () => finalize(true);
       synth.cancel();
       synth.resume();
       synth.speak(utterance);
+      startPollInterval = window.setInterval(() => {
+        if (speechStarted || settled) {
+          return;
+        }
+
+        if (synth.speaking || synth.pending) {
+          markSpeechStarted();
+        }
+      }, 75);
     };
 
     const availableVoices = synth.getVoices();
@@ -1347,8 +1427,6 @@ function playBrowserSpeech(
       speakOnce();
     };
 
-    activeSpeechPlaybackResolver = finalize;
-    activeSpeechPlaybackCleanup = cleanup;
     synth.addEventListener?.("voiceschanged", handleVoicesChanged);
     window.setTimeout(() => {
       if (!didSpeak) {
