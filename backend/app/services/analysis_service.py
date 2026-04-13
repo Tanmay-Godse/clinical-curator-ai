@@ -20,7 +20,7 @@ from app.services.scoring_service import (
     validate_overlay_target_ids,
 )
 
-ANALYSIS_RESPONSE_MAX_TOKENS = 900
+ANALYSIS_RESPONSE_MAX_TOKENS = 520
 
 
 def analyze_frame_payload(payload: AnalyzeFrameRequest) -> AnalyzeFrameResponse:
@@ -155,7 +155,7 @@ def request_stage_analysis(
 def _build_analysis_system_prompt() -> str:
     return (
         "You are an AI clinical skills coach reviewing a simulation-only suturing practice frame. "
-        "The learner is practicing a simple interrupted suture on a banana, orange, or foam pad. "
+        "The learner is practicing a simple interrupted suture on any fruit or foam pad. "
         "Never imply diagnosis, patient care, or real-world medical clearance. "
         "Return every learner-facing field in the requested feedback_language. "
         "Base every judgment only on what is visible in the frame and the provided stage rubric. "
@@ -208,11 +208,11 @@ def _build_analysis_user_content(
         "allowed_overlay_targets": allowed_targets,
         "student_question": payload.student_question or "",
         "response_rules": {
-            "visible_observations": "Return 2 to 4 short observations grounded in the frame.",
-            "issues": "Return 0 to 3 issues. Each issue needs a code, severity, and message.",
+            "visible_observations": "Return 1 to 3 short observations grounded in the frame.",
+            "issues": "Return 0 to 2 issues. Each issue needs a code, severity, and message.",
             "overlay_target_ids": "Return only allowed ids that match the most helpful on-screen coaching targets.",
-            "coaching_message": "Return one short coaching paragraph for the learner's next attempt.",
-            "next_action": "Return one clear next action sentence.",
+            "coaching_message": "Return one short spoken-friendly coaching message for the learner's next attempt. Keep it to at most 2 brief sentences.",
+            "next_action": "Return one short clear next action sentence.",
             "student_question_usage": "If student_question is provided, treat it as the learner's instruction for what to emphasize in coaching_message and next_action, but do not invent visual facts that are not in the frame.",
         },
     }

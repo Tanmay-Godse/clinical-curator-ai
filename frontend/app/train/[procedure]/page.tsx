@@ -24,6 +24,7 @@ import {
   startBrowserSpeechCapture,
   canUseBrowserSpeechRecognition,
   canUseVoiceRecording,
+  primeSpeechPlayback,
   primeVoiceRecordingPermission,
   speakText,
   speakTextAndWait,
@@ -78,6 +79,7 @@ const DEMO_CAMERA_SESSION_LIMIT_MS = 2 * 60 * 1000;
 const SETUP_LOCAL_CHECK_TIMEOUT_MS = 5_000;
 const COACH_CONVERSATION_WINDOW = 4;
 const VOICE_RECORDING_MAX_DURATION_MS = 10_000;
+const LIVE_VOICE_CAPTURE_MAX_DURATION_MS = 5_000;
 const VOICE_RECORDING_MIN_SPEECH_MS = 220;
 const VOICE_RECORDING_SILENCE_DURATION_MS = 800;
 const VOICE_POST_SPEAK_LISTEN_DELAY_MS = 120;
@@ -87,6 +89,7 @@ const VOICE_PROACTIVE_REPROMPT_DELAY_MS = 500;
 const VOICE_PROACTIVE_REPROMPT_AFTER_SILENT_WINDOWS = 3;
 const VOICE_MIN_GAP_BETWEEN_PROACTIVE_TURNS_MS = 12_000;
 const VOICE_DUPLICATE_GUIDANCE_COOLDOWN_MS = 20_000;
+const COACH_IMAGE_REFRESH_WINDOW_MS = 4_500;
 const BROWSER_AUDIO_CHECK_EARLY_EXIT_MS = 1_500;
 const COACH_AUDIO_PLAYBACK_ERROR =
   "Coach guidance is available in text, but spoken playback did not start. Open the Coach tab and use Test Voice, or check browser/site audio output.";
@@ -640,6 +643,7 @@ export default function TrainProcedurePage() {
     signature: string;
   } | null>(null);
   const lastCoachTurnAtRef = useRef<number | null>(null);
+  const lastCoachVisualAtRef = useRef<number | null>(null);
   const isSecureBrowserContext =
     typeof window !== "undefined" && window.isSecureContext;
   const mediaCaptureSupported =
@@ -1357,7 +1361,8 @@ export default function TrainProcedurePage() {
   );
   const voiceChatEnabled =
     cameraReady && !isSetupStage && isLiveSessionActive && equityMode.audioCoaching;
-  const coachLoopEnabled = cameraReady && !isSetupStage && isLiveSessionActive;
+  const coachLoopEnabled =
+    cameraReady && !isSetupStage && isLiveSessionActive && !isAnalyzing;
   const isPreviewCameraMode = cameraReady && !isLiveSessionActive;
   const captureProfileLabel = "Standard capture";
   const hasLiveSessionLimitReached = Boolean(
@@ -2269,6 +2274,7 @@ export default function TrainProcedurePage() {
     }
 
     if (!ready) {
+      lastCoachVisualAtRef.current = null;
       cancelActiveVoiceCapture();
       stopSpeechPlayback();
       setVoiceSessionStatus("idle");
@@ -2359,6 +2365,7 @@ export default function TrainProcedurePage() {
     }
 
     resumePausedSessionRef.current = isResumingPausedSession;
+    primeSpeechPlayback();
 
     try {
       await camera.startCamera();
@@ -2397,6 +2404,10 @@ export default function TrainProcedurePage() {
     isSetupStage,
     setLiveSessionActiveState,
   ]);
+
+  useEffect(() => {
+    lastCoachVisualAtRef.current = null;
+  }, [currentStageId]);
 
   const handlePauseSession = useCallback(() => {
     const camera = cameraRef.current;
@@ -2648,6 +2659,33 @@ export default function TrainProcedurePage() {
     };
   }, [buildSetupChecks]);
 
+  const appendCoachMessage = useCallback((
+    role: CoachChatMessage["role"],
+    message: string,
+  ) => {
+    const trimmed = message.trim();
+    if (!trimmed) {
+      return;
+    }
+
+    setCoachMessages((current) => {
+      const lastMessage = current.at(-1);
+      if (lastMessage?.role === role && lastMessage.content === trimmed) {
+        return current;
+      }
+
+      const nextMessages = [
+        ...current.slice(-7),
+        {
+          role,
+          content: trimmed,
+        },
+      ];
+      coachMessagesRef.current = nextMessages;
+      return nextMessages;
+    });
+  }, []);
+
   const handleAnalyzeStep = useCallback(async () => {
     if (!procedure || !currentStage || !session || !authUser) {
       return;
@@ -2886,6 +2924,43 @@ export default function TrainProcedurePage() {
       setFeedbackStageId(currentStage.id);
 
       if (
+        currentStage.id !== "setup" &&
+        equityMode.audioCoaching &&
+        isLiveSessionActive &&
+        response.coaching_message.trim()
+      ) {
+        const stepCoachingMessage = response.coaching_message.trim();
+        const stepCoachingSignature =
+          buildCoachMessageSignature(stepCoachingMessage);
+
+        appendCoachMessage("assistant", stepCoachingMessage);
+        setVoiceSessionStatus("speaking");
+
+        const didSpeakStepCoaching = await speakTextAndWait(
+          stepCoachingMessage,
+          equityMode.feedbackLanguage,
+          equityMode.coachVoice,
+        );
+
+        if (!didSpeakStepCoaching) {
+          setCoachError(COACH_AUDIO_PLAYBACK_ERROR);
+          setVoiceSessionStatus("paused");
+          return;
+        }
+
+        setCoachError((current) =>
+          current === COACH_AUDIO_PLAYBACK_ERROR ? null : current,
+        );
+        lastCoachMessageRef.current = {
+          at: Date.now(),
+          conversationStage: "guiding",
+          signature: stepCoachingSignature,
+        };
+        lastCoachTurnAtRef.current = Date.now();
+        setVoiceSessionStatus("listening");
+      }
+
+      if (
         currentStage.id === "setup" &&
         response.step_status === "pass" &&
         response.grading_decision === "graded"
@@ -2918,12 +2993,14 @@ export default function TrainProcedurePage() {
     }
   }, [
     activateLiveSessionIfNeeded,
+    appendCoachMessage,
     appendOfflinePracticeLog,
     authUser,
     buildLocalSetupFeedback,
     calibration,
     currentStage,
     equityMode,
+    isLiveSessionActive,
     isOnline,
     latestLearnerGoal,
     browserVoiceRecordingAvailable,
@@ -2996,12 +3073,25 @@ export default function TrainProcedurePage() {
             ]
           : messages
       ).slice(-COACH_CONVERSATION_WINDOW);
-      const capturedFrame =
-        includeImage && cameraReady && simulationConfirmed
-          ? await cameraRef.current?.captureFrame({
-              mode: "coach",
-            })
-          : null;
+      const shouldCaptureFreshFrame =
+        includeImage &&
+        cameraReady &&
+        simulationConfirmed &&
+        (
+          nextMessages.length === 0 ||
+          !normalizedLearnerMessage ||
+          lastCoachVisualAtRef.current === null ||
+          Date.now() - lastCoachVisualAtRef.current >=
+            COACH_IMAGE_REFRESH_WINDOW_MS
+        );
+      const capturedFrame = shouldCaptureFreshFrame
+        ? await cameraRef.current?.captureFrame({
+            mode: "coach",
+          })
+        : null;
+      if (capturedFrame) {
+        lastCoachVisualAtRef.current = Date.now();
+      }
 
       const response = await coachChat({
         procedure_id: procedure.id,
@@ -3044,33 +3134,6 @@ export default function TrainProcedurePage() {
     simulationConfirmed,
     skillLevel,
   ]);
-
-  const appendCoachMessage = useCallback((
-    role: CoachChatMessage["role"],
-    message: string,
-  ) => {
-    const trimmed = message.trim();
-    if (!trimmed) {
-      return;
-    }
-
-    setCoachMessages((current) => {
-      const lastMessage = current.at(-1);
-      if (lastMessage?.role === role && lastMessage.content === trimmed) {
-        return current;
-      }
-
-      const nextMessages = [
-        ...current.slice(-7),
-        {
-          role,
-          content: trimmed,
-        },
-      ];
-      coachMessagesRef.current = nextMessages;
-      return nextMessages;
-    });
-  }, []);
 
   useEffect(() => {
     setCoachTurn(null);
@@ -3257,7 +3320,7 @@ export default function TrainProcedurePage() {
         try {
           voiceCaptureController = await startVoiceCapture({
             language: equityMode.feedbackLanguage,
-            maxDurationMs: VOICE_RECORDING_MAX_DURATION_MS,
+            maxDurationMs: LIVE_VOICE_CAPTURE_MAX_DURATION_MS,
             minSpeechDurationMs: VOICE_RECORDING_MIN_SPEECH_MS,
             silenceDurationMs: VOICE_RECORDING_SILENCE_DURATION_MS,
           });
