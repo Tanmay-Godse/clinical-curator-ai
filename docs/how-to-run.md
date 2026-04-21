@@ -26,6 +26,9 @@ the intended Python environment. If you already ran `micromamba activate
 
 ## 1. Start The Local Model Server
 
+For a generic vLLM + micromamba guide without machine-specific paths, use
+[vllm-local-backend.md](vllm-local-backend.md).
+
 ```bash
 cd backend
 LOCAL_VLLM_KEY=$(/home/tanmay-godse/micromamba/envs/hackathon/bin/python - <<'PY'
@@ -95,7 +98,7 @@ cp .env.local.example .env.local
 Set:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
+API_BASE_URL=http://127.0.0.1:8001/api/v1
 ```
 
 Run the frontend:
@@ -104,7 +107,7 @@ Run the frontend:
 npm run dev
 ```
 
-If you change `NEXT_PUBLIC_API_BASE_URL`, restart the frontend dev server.
+If you change `API_BASE_URL`, restart the frontend dev server.
 
 ## 4. Sign In To The Demo
 
@@ -176,7 +179,8 @@ audio-diagnostic, and image-analysis actions:
 12. Optionally test `Pause Session` and `End Session` so the live controls are confirmed before a demo.
 13. Open the generated review from the session flow.
 14. Visit `/knowledge` and `/library` to confirm the supporting surfaces load.
-15. Refresh `/dashboard` or `/review/[sessionId]` and confirm the session history rehydrates from the backend.
+15. In `/knowledge`, wait for the current AI pack to finish generating before judging the Rapidfire, Quiz, or Flashcards lanes; local vLLM can take several seconds there.
+16. Refresh `/dashboard` or `/review/[sessionId]` and confirm the session history rehydrates from the backend.
 
 ## 7. Quick Checks
 
@@ -246,7 +250,7 @@ the backend.
   use `micromamba run -n <your env> uvicorn app.main:app --reload --reload-dir app --port 8001`
   from the `backend/` folder so file watching stays scoped to `app/`.
 - Frontend loads but API calls fail:
-  `NEXT_PUBLIC_API_BASE_URL` does not match the running backend.
+  `API_BASE_URL` does not match the running backend.
 - Deployed frontend cannot call the backend:
   `FRONTEND_ORIGIN` does not match the exact frontend origin allowed by the backend.
 - Camera or microphone does not start:
@@ -256,6 +260,7 @@ the backend.
 ## 9. Next Docs
 
 - [local-setup.md](local-setup.md)
+- [vllm-local-backend.md](vllm-local-backend.md)
 - [cloud-keys.md](cloud-keys.md)
 - [team-setup.md](team-setup.md)
 - [vercel-deployment.md](vercel-deployment.md)

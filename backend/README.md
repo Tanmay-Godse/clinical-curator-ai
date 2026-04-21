@@ -63,5 +63,6 @@ micromamba run -n <your env> pytest tests/test_services.py tests/test_api.py -q
 ## Read Next
 
 - [../docs/local-setup.md](../docs/local-setup.md)
+- [../docs/vllm-local-backend.md](../docs/vllm-local-backend.md)
 - [../docs/backend-deployment.md](../docs/backend-deployment.md)
 - [../docs/api-reference.md](../docs/api-reference.md)

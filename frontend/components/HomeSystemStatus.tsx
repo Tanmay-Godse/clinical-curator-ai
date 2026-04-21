@@ -94,7 +94,7 @@ export function HomeSystemStatus() {
                 : loadState === "loading"
                   ? "Fetching health and procedure metadata from the training backend."
                   : error ??
-                    "Start the backend and make sure NEXT_PUBLIC_API_BASE_URL points to it."}
+                    "Start the backend and make sure API_BASE_URL points to it."}
             </p>
           </div>
         </div>
@@ -140,7 +140,7 @@ export function HomeSystemStatus() {
           <ul className="checklist-list">
             <li>Run the backend on port 8001 so the frontend can load procedure data.</li>
             <li>Keep the model server reachable from the backend for frame analysis.</li>
-            <li>Confirm `NEXT_PUBLIC_API_BASE_URL` points to `/api/v1` on your backend.</li>
+            <li>Confirm `API_BASE_URL` points to `/api/v1` on your backend.</li>
           </ul>
         </section>
       )}

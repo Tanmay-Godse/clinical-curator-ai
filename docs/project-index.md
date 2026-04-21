@@ -258,7 +258,7 @@ Runtime files are resolved through `runtime_data_path()`: locally they live unde
 
 | Route | File | Responsibility |
 | --- | --- | --- |
-| `/` | [../frontend/app/page.tsx](../frontend/app/page.tsx) | Redirect to dashboard |
+| `/` | [../frontend/app/page.tsx](../frontend/app/page.tsx) | Redirect to login so the workspace always starts from the auth entry point |
 | `/login` | [../frontend/app/login/page.tsx](../frontend/app/login/page.tsx) | Sign-in/create-account flow with local session resume, role-aware routing, and pending-admin messaging |
 | `/access-required` | [../frontend/app/access-required/page.tsx](../frontend/app/access-required/page.tsx) | Legacy explanation page for older links that now redirect learners back to `/login` |
 | `/dashboard` | [../frontend/app/dashboard/page.tsx](../frontend/app/dashboard/page.tsx) | Gamified learner dashboard built from saved sessions, streaks, XP, and recurring issues |
@@ -291,7 +291,7 @@ Runtime files are resolved through `runtime_data_path()`: locally they live unde
 | Path | Role |
 | --- | --- |
 | [../frontend/lib/types.ts](../frontend/lib/types.ts) | Shared frontend data model contract |
-| [../frontend/lib/api.ts](../frontend/lib/api.ts) | Backend fetch wrappers, auth header construction, and dev-vs-proxy base URL selection |
+| [../frontend/lib/api.ts](../frontend/lib/api.ts) | Backend fetch wrappers and same-origin `/api/proxy` URL construction |
 | [../frontend/lib/storage.ts](../frontend/lib/storage.ts) | Browser auth/session/debrief/knowledge persistence, username migration, and backend sync merge |
 | [../frontend/lib/useWorkspaceUser.ts](../frontend/lib/useWorkspaceUser.ts) | `useSyncExternalStore` bridge over storage with background learning-state hydration |
 | [../frontend/lib/audio.ts](../frontend/lib/audio.ts) | Browser speech synthesis, browser STT/voice capture, WAV encoding, and backend TTS fallback |
@@ -351,7 +351,9 @@ This file is effectively the frontend persistence layer.
 - hydrates persisted knowledge progress per signed-in learner
 - derives recent issues, latest skill level, latest language, and focus area from saved sessions
 - requests study packs from the backend with study mode, selected topic, recent issue labels, and history to avoid repeated prompts/cards
+- keeps one active pack request at a time so a new response does not immediately retrigger another pack generation cycle
 - falls back to default topic suggestions when needed
+- renders explicit loading and empty states for rapidfire, quiz, and flashcards while a pack is still being generated
 - tracks rapidfire timers, quiz scoring, flashcard mastery, and total points locally and via backend sync
 
 ## Procedure And Rubric Assets
@@ -420,8 +422,8 @@ Defined in [../frontend/.env.local.example](../frontend/.env.local.example) and 
 
 | Variable | Purpose |
 | --- | --- |
-| `NEXT_PUBLIC_API_BASE_URL` | Local-development direct backend base URL |
-| `API_BASE_URL` | Hosted frontend server-side proxy target used by `/api/proxy/*` |
+| `API_BASE_URL` | Frontend server-side proxy target used by `/api/proxy/*` in local and hosted environments |
+| `NEXT_PUBLIC_API_BASE_URL` | Legacy fallback read by the frontend proxy when `API_BASE_URL` is unset |
 
 ## Test Index
 

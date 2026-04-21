@@ -228,14 +228,14 @@ export function FeedbackCard({
                   onClick={() => void handlePlayCoachingAudio()}
                   type="button"
                 >
-                  Play Audio Coaching
+                  Read Coaching Aloud
                 </button>
                 <button
                   className="button-ghost"
                   onClick={handleStopCoachingAudio}
                   type="button"
                 >
-                  Stop Audio
+                  Stop Reading
                 </button>
               </div>
             ) : null}

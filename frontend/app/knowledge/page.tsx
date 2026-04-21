@@ -235,10 +235,20 @@ export default function KnowledgePage() {
   const [flashcardsKnown, setFlashcardsKnown] = useState<string[]>([]);
   const knowledgeRequestIdRef = useRef(0);
   const progressRef = useRef(progress);
+  const studyModeRef = useRef(studyMode);
+  const selectedTopicRef = useRef(selectedTopic);
 
   useEffect(() => {
     progressRef.current = progress;
   }, [progress]);
+
+  useEffect(() => {
+    studyModeRef.current = studyMode;
+  }, [studyMode]);
+
+  useEffect(() => {
+    selectedTopicRef.current = selectedTopic;
+  }, [selectedTopic]);
 
   useEffect(() => {
     if (hydrated && !user) {
@@ -326,8 +336,8 @@ export default function KnowledgePage() {
         return;
       }
 
-      const nextStudyMode = overrides?.studyMode ?? studyMode;
-      const nextSelectedTopic = overrides?.selectedTopic ?? selectedTopic;
+      const nextStudyMode = overrides?.studyMode ?? studyModeRef.current;
+      const nextSelectedTopic = overrides?.selectedTopic ?? selectedTopicRef.current;
       const requestId = knowledgeRequestIdRef.current + 1;
       knowledgeRequestIdRef.current = requestId;
       setIsPackLoading(true);
@@ -382,8 +392,6 @@ export default function KnowledgePage() {
       latestLanguage,
       latestSkillLevel,
       recentIssueLabels,
-      selectedTopic,
-      studyMode,
       updateProgress,
       user,
     ],
@@ -391,10 +399,23 @@ export default function KnowledgePage() {
 
   useEffect(() => {
     if (!user) {
+      setKnowledgePack(null);
+      setPackError(null);
+      setIsPackLoading(false);
       return;
     }
 
-    void loadKnowledgePack();
+    setKnowledgePack(null);
+    setPackError(null);
+    setStudyMode("current_procedure");
+    setSelectedTopic("");
+    studyModeRef.current = "current_procedure";
+    selectedTopicRef.current = "";
+    resetInteractiveState();
+    void loadKnowledgePack({
+      selectedTopic: "",
+      studyMode: "current_procedure",
+    });
   }, [loadKnowledgePack, user]);
 
   useEffect(() => {
@@ -413,6 +434,7 @@ export default function KnowledgePage() {
   const currentFlashcard = flashcards[flashcardIndex] ?? null;
   const rating = ratingFromPoints(progress.totalPoints);
   const activeTopicLabel = selectedTopic || knowledgePack?.topic_title || focusArea;
+  const isKnowledgePackPending = isPackLoading && !knowledgePack;
   const accuracyPercent =
     progress.answeredCount > 0
       ? Math.round((progress.correctCount / progress.answeredCount) * 100)
@@ -825,7 +847,38 @@ export default function KnowledgePage() {
 
             {activeTab === "rapidfire" ? (
               <section className="knowledge-mode-panel">
-                {!rapidfireState.started || rapidfireState.finished ? (
+                {isKnowledgePackPending ? (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Rapidfire Round</span>
+                      <h3>Building your rapidfire round</h3>
+                      <p>
+                        We&apos;re generating the next short-answer sprint from your
+                        current topic and recent practice history.
+                      </p>
+                    </div>
+                  </div>
+                ) : rapidfireQuestions.length === 0 ? (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Rapidfire Round</span>
+                      <h3>Rapidfire is not ready yet</h3>
+                      <p>
+                        This pack did not return a usable rapidfire set. Refresh the pack
+                        and try again.
+                      </p>
+                    </div>
+                    <div className="dashboard-frame-actions">
+                      <button
+                        className="dashboard-primary-button"
+                        onClick={() => void loadKnowledgePack()}
+                        type="button"
+                      >
+                        Refresh Pack
+                      </button>
+                    </div>
+                  </div>
+                ) : !rapidfireState.started || rapidfireState.finished ? (
                   <div className="knowledge-round-summary">
                     <div>
                       <span className="dashboard-card-eyebrow">Rapidfire Round</span>
@@ -932,7 +985,38 @@ export default function KnowledgePage() {
 
             {activeTab === "quiz" ? (
               <section className="knowledge-mode-panel">
-                {currentQuizQuestion && !quizState.finished ? (
+                {isKnowledgePackPending ? (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Quiz</span>
+                      <h3>Building your quiz</h3>
+                      <p>
+                        We&apos;re preparing the longer explanation-based questions for
+                        this topic.
+                      </p>
+                    </div>
+                  </div>
+                ) : quizQuestions.length === 0 ? (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Quiz</span>
+                      <h3>Quiz questions are not ready yet</h3>
+                      <p>
+                        This pack did not return a usable quiz set. Refresh the pack and
+                        try again.
+                      </p>
+                    </div>
+                    <div className="dashboard-frame-actions">
+                      <button
+                        className="dashboard-primary-button"
+                        onClick={() => void loadKnowledgePack()}
+                        type="button"
+                      >
+                        Refresh Pack
+                      </button>
+                    </div>
+                  </div>
+                ) : currentQuizQuestion && !quizState.finished ? (
                   <div className="knowledge-question-shell">
                     <div className="knowledge-question-topline">
                       <span className="dashboard-card-eyebrow">
@@ -1020,7 +1104,18 @@ export default function KnowledgePage() {
 
             {activeTab === "flashcards" ? (
               <section className="knowledge-mode-panel">
-                {currentFlashcard ? (
+                {isKnowledgePackPending ? (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Flashcards</span>
+                      <h3>Building your flashcards</h3>
+                      <p>
+                        We&apos;re generating short memory cues and answer cards for this
+                        study pack.
+                      </p>
+                    </div>
+                  </div>
+                ) : currentFlashcard ? (
                   <>
                     <div className="knowledge-question-topline">
                       <span className="dashboard-card-eyebrow">
@@ -1063,7 +1158,27 @@ export default function KnowledgePage() {
                       </button>
                     </div>
                   </>
-                ) : null}
+                ) : (
+                  <div className="knowledge-round-summary">
+                    <div>
+                      <span className="dashboard-card-eyebrow">Flashcards</span>
+                      <h3>Flashcards are not ready yet</h3>
+                      <p>
+                        This pack did not return usable flashcards. Refresh the pack and
+                        try again.
+                      </p>
+                    </div>
+                    <div className="dashboard-frame-actions">
+                      <button
+                        className="dashboard-primary-button"
+                        onClick={() => void loadKnowledgePack()}
+                        type="button"
+                      >
+                        Refresh Pack
+                      </button>
+                    </div>
+                  </div>
+                )}
               </section>
             ) : null}
           </article>

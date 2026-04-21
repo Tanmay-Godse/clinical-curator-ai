@@ -26,19 +26,9 @@ import type {
   UpdateAuthAccountInput,
 } from "@/lib/types";
 
-const API_BASE_URL =
-  process.env.NODE_ENV === "development"
-    ? process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ??
-      "http://localhost:8001/api/v1"
-    : "/api/proxy";
+const API_BASE_URL = "/api/proxy";
 
 function buildApiUrl(path: string): string {
-  if (!API_BASE_URL) {
-    throw new Error(
-      "NEXT_PUBLIC_API_BASE_URL is not configured for this deployment.",
-    );
-  }
-
   return `${API_BASE_URL}${path}`;
 }
 

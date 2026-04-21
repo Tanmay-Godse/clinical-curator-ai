@@ -5,6 +5,7 @@ Use this folder as the documentation entry point for the repo.
 ## Start With
 
 - [how-to-run.md](how-to-run.md): quickest way to run the demo locally
+- [vllm-local-backend.md](vllm-local-backend.md): generic micromamba + local vLLM backend setup
 - [cloud-keys.md](cloud-keys.md): exact Anthropic and OpenAI key setup for local and deployed backends
 - [local-setup.md](local-setup.md): full developer setup, architecture, persistence, and troubleshooting
 - [project-index.md](project-index.md): deep codebase map and feature ownership guide
@@ -26,16 +27,18 @@ Use this folder as the documentation entry point for the repo.
 
 1. Read [../README.md](../README.md) for the product overview.
 2. Use [how-to-run.md](how-to-run.md) if you just want the app running fast.
-3. Use [cloud-keys.md](cloud-keys.md) before adding Anthropic or OpenAI secrets.
-4. Use [local-setup.md](local-setup.md) if you are developing features or debugging behavior.
-5. Use [project-index.md](project-index.md) when you need to find where a feature or behavior lives.
-6. Use [team-setup.md](team-setup.md) before pushing, deploying, or sharing credentials.
-7. Use the deployment docs only when you are preparing hosted environments.
+3. Use [vllm-local-backend.md](vllm-local-backend.md) if you want a generic local vLLM + micromamba setup.
+4. Use [cloud-keys.md](cloud-keys.md) before adding Anthropic or OpenAI secrets.
+5. Use [local-setup.md](local-setup.md) if you are developing features or debugging behavior.
+6. Use [project-index.md](project-index.md) when you need to find where a feature or behavior lives.
+7. Use [team-setup.md](team-setup.md) before pushing, deploying, or sharing credentials.
+8. Use the deployment docs only when you are preparing hosted environments.
 
 ## Which Doc Owns What
 
 - `README.md`: high-level repo overview and quick links
 - `docs/how-to-run.md`: fastest local startup path
+- `docs/vllm-local-backend.md`: generic local vLLM + micromamba setup
 - `docs/cloud-keys.md`: canonical cloud-key setup for Anthropic and OpenAI
 - `docs/local-setup.md`: canonical local-development guide
 - `docs/project-index.md`: architecture map, ownership map, and change-entry guide

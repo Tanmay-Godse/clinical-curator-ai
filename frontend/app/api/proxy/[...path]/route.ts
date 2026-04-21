@@ -8,6 +8,14 @@ type ProxyRouteContext = {
 
 export const dynamic = "force-dynamic";
 
+const REQUEST_HEADER_ALLOWLIST = new Set([
+  "accept",
+  "authorization",
+  "content-type",
+  "x-account-id",
+  "x-session-token",
+]);
+
 function getBackendBaseUrl(): string {
   const configuredBaseUrl =
     process.env.API_BASE_URL?.replace(/\/$/, "") ??
@@ -31,15 +39,10 @@ async function proxyRequest(
   const targetUrl = `${backendBaseUrl}/${path.join("/")}${query}`;
 
   const headers = new Headers();
-  const contentType = request.headers.get("content-type");
-  const accept = request.headers.get("accept");
-
-  if (contentType) {
-    headers.set("content-type", contentType);
-  }
-
-  if (accept) {
-    headers.set("accept", accept);
+  for (const [key, value] of request.headers.entries()) {
+    if (REQUEST_HEADER_ALLOWLIST.has(key.toLowerCase())) {
+      headers.set(key, value);
+    }
   }
 
   const body =

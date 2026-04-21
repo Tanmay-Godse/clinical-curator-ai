@@ -32,6 +32,9 @@ current demo build.
 
 ## Local Model Server
 
+For a generic micromamba + vLLM walkthrough without repo-local paths, use
+[vllm-local-backend.md](vllm-local-backend.md).
+
 ```bash
 cd backend
 LOCAL_VLLM_KEY=$(/home/tanmay-godse/micromamba/envs/hackathon/bin/python - <<'PY'
@@ -96,7 +99,7 @@ cp .env.local.example .env.local
 Set:
 
 ```env
-NEXT_PUBLIC_API_BASE_URL=http://localhost:8001/api/v1
+API_BASE_URL=http://127.0.0.1:8001/api/v1
 ```
 
 Run it:
@@ -216,6 +219,12 @@ Fixed defaults in the demo build:
 - `Audio coaching`: on
 - `Offline-first logging`: on
 
+Knowledge Lab behavior:
+
+- the page generates one study pack at a time and keeps the visible round stable once it loads
+- rapidfire, quiz, and flashcards each render explicit loading states while a fresh pack is being generated
+- local vLLM can take noticeably longer here than simple metadata routes because one request builds all three study lanes together
+
 Still configurable:
 
 - `Skill level`
@@ -258,6 +267,12 @@ curl http://localhost:8001/api/v1/procedures/simple-interrupted-suture
 - Browser STT works inconsistently across browsers:
   use the trainer `Setup` tab and the dedicated `Mic and speech test` area to
   confirm whether browser speech recognition is usable in the current browser.
+
+## Related Docs
+
+- [how-to-run.md](how-to-run.md)
+- [vllm-local-backend.md](vllm-local-backend.md)
+- [cloud-keys.md](cloud-keys.md)
 - Local vLLM returns `401 Unauthorized`:
   the model server `--api-key` does not match `AI_API_KEY` in `backend/.env`.
 - Live preview fails immediately with a local OpenAI-compatible provider error:

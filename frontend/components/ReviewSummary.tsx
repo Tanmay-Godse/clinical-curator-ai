@@ -279,7 +279,7 @@ export function ReviewSummary({
                       onClick={() => void handlePlayDebriefAudio()}
                       type="button"
                     >
-                      Play Debrief Audio
+                      Read Debrief Aloud
                     </button>
                     {isSpeaking ? (
                       <button
@@ -287,7 +287,7 @@ export function ReviewSummary({
                         onClick={handleStopDebriefAudio}
                         type="button"
                       >
-                        Stop Audio
+                        Stop Reading
                       </button>
                     ) : null}
                   </div>
